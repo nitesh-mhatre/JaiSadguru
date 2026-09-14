@@ -1,0 +1,30 @@
+# ---------------------------------------------------------------------------
+# Web layer
+# ---------------------------------------------------------------------------
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.4
+
+# ---------------------------------------------------------------------------
+# Data
+# ---------------------------------------------------------------------------
+pandas==2.2.2
+numpy>=1.26.0
+# Free, keyless market data. Not pinned tightly: yfinance tracks Yahoo's schema
+# closely and needs to be updatable without a code change.
+yfinance>=0.2.50
+
+# ---------------------------------------------------------------------------
+# Kronos model runtime (required by backend/vendor/kronos)
+#
+# CPU-only machines: install torch from the CPU wheel index first, then this
+# file, so pip does not pull a multi-gigabyte CUDA build:
+#
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+#   pip install -r requirements.txt
+# ---------------------------------------------------------------------------
+torch>=2.2.0
+einops==0.8.1
+huggingface_hub==0.33.1
+safetensors==0.6.2
+tqdm==4.67.1
