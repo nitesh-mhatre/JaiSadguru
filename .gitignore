@@ -1,0 +1,33 @@
+# ---------- Python ----------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ---------- Node / frontend ----------
+node_modules/
+frontend/dist/
+.vite/
+*.tsbuildinfo
+
+# ---------- Runtime data (never commit market data, db or logs) ----------
+backend/.cache/
+backend/data/
+backend/logs/
+*.db
+*.sqlite3
+*.log
+
+# ---------- Secrets ----------
+.env
+.env.local
+.env.*.local
+
+# ---------- OS / editors ----------
+.DS_Store
+.idea/
+.vscode/
