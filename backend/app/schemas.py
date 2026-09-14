@@ -175,6 +175,17 @@ class SignalResponse(BaseModel):
     created_at: str
 
 
+class ForecastBundle(BaseModel):
+    """A forecast together with the signal derived from it.
+
+    Defined after :class:`SignalResponse` so the reference resolves without a forward-ref
+    rebuild step.
+    """
+
+    forecast: ForecastResponse
+    signal: SignalResponse
+
+
 # ------------------------------------------------------------------------------------
 # Paper portfolio
 # ------------------------------------------------------------------------------------
@@ -322,3 +333,14 @@ class MessageResponse(BaseModel):
 
     ok: bool
     message: str
+
+
+class StatsResponse(BaseModel):
+    """Row counts per table, for manual inspection and debugging."""
+
+    runs: int
+    forecasts: int
+    signals: int
+    positions: int
+    trades: int
+    snapshots: int
