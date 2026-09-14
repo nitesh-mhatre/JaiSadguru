@@ -39,6 +39,7 @@ end to end.** That is the single most important open item.
 | F-03 | `doc/objective.md` — mission, targets, non-goals, rules R1–R6 | ✅ Done | `e89adf5`. Rules R1/R2/R3 recorded verbatim as requested |
 | F-04 | `doc/plan.md` — this file | ✅ Done | `e89adf5`, statuses finalised in `docs/plan-final` |
 | F-05 | Vendor Kronos model source into `backend/vendor/kronos/` | ✅ Done | `c63a8fe`, branch `feat/kronos-vendor`. Pinned to upstream `67b630e`; imports rewritten to package-relative; upstream MIT `LICENSE` retained; provenance + re-vendoring steps in the package README |
+| F-06 | Runnable shell entry points: `setup.sh`, `dev.sh`, `backend/run.sh`, `frontend/run.sh` | ✅ Done | branch `feat/run-scripts`. Verified by `bash -n` on all four, `./frontend/run.sh --version` (exits 0), and `./backend/run.sh` with deps absent (fails loudly, exit 1, prints the fix). `./dev.sh` was observed tearing the dashboard down when the backend died, leaving no orphan processes |
 
 ## Milestone M1 — Forecast core
 
@@ -121,11 +122,14 @@ end to end.** That is the single most important open item.
 | 2026-09-14 | Buy fees folded into the position **cost basis** | Makes `realized + unrealized == equity - initial_capital` hold exactly. Without it the two fees of a round trip land in different buckets and the portfolio can report a profit it never made. Trade-off: `avg_price` is an effective cost, not the raw print — labelled "Avg cost" in the UI |
 | 2026-09-14 | **Plan consolidated at the end of M0–M3** instead of per commit | A recorded deviation from R1. With eleven branches landing in one session, updating statuses in each commit would have produced eleven edits to the same tables. The write-up happened in a single commit **after** the work, with each task carrying its branch and commit hash, so the record is complete and accurate but not temporally distributed. R1 is followed per commit from M4 onward. Noted here rather than quietly ignored |
 | 2026-09-14 | Scheduler (H-01) delivered inside the API branch rather than as its own M5 branch | `SCHEDULER_ENABLED` was already part of the config surface; a configuration setting with no implementation behind it is a lie to the next reader |
+| 2026-09-14 | Run scripts `exec` the server binary directly instead of going through `npm run dev` / a wrapper | With npm in between, the tracked PID is npm's, so killing it orphans the actual server. `exec` makes each PID the service itself, which is what `dev.sh` needs to tear both down cleanly |
+| 2026-09-14 | `dev.sh` exits as soon as **either** service dies | A dashboard serving against a dead API shows stale numbers with no obvious cause. Failing fast makes the broken half obvious; use the individual `run.sh` scripts when you want one side only |
 
 ## Progress log
 
 > Newest first. Each entry: date — what landed — branch — commit — verification.
 
+- **2026-09-14** — Runnable shell entry points: `setup.sh` (venv + npm, with a `TORCH_INDEX` CPU-wheel option), `dev.sh` (both services, shared teardown), `backend/run.sh` (venv-aware, fails loudly without deps, warns when torch is missing), `frontend/run.sh` (installs on first run, `exec`s vite) — `feat/run-scripts` — **verified: `bash -n` clean on all four; `./frontend/run.sh --version` exit 0; `./backend/run.sh` with deps absent exits 1 with the fix printed; `./dev.sh` tore down the dashboard when the backend died, no orphans**.
 - **2026-09-14** — Plan consolidated to final statuses, bug log completed (B-04), deviation from R1 recorded — `docs/plan-final` — markdown only.
 - **2026-09-14** — React dashboard: watchlist, SVG forecast chart, signal rationale panel, paper portfolio with equity curve, trade log, header controls and runs strip — `feat/react-dashboard` — `7d226c1` — **verified: `npm run typecheck` exit 0, `npm run build` exit 0 (250.08 kB / 77.39 kB gzip)**.
 - **2026-09-14** — FastAPI surface: system/market/forecast/signals/trading routes, CORS, `requirements.txt`, `.env.example`, `run.sh`, optional scheduler — `feat/backend-api` — `f01751c` — `python -m compileall` pass; runtime not executed (B-01).

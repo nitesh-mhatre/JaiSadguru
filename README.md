@@ -38,27 +38,49 @@ React (Vite + TS)  ──HTTP/JSON──▶  FastAPI (Python)  ──▶  yfinan
 
 ## Quickstart
 
-### 1. Backend
-
 ```bash
-cd backend
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8000
+./setup.sh    # once: backend venv + frontend npm install (nothing installed globally)
+./dev.sh      # backend + dashboard together; Ctrl-C stops both
 ```
 
-On first forecast the Kronos weights download from Hugging Face into `~/.cache/huggingface`
-(~100 MB for `Kronos-small`). Set `KRONOS_MODEL=kronos-mini` in `.env` for a lighter 4.1M-param model.
+| Service | URL |
+|---------|-----|
+| Dashboard | <http://localhost:5173> |
+| API + interactive docs | <http://localhost:8000/docs> |
 
-### 2. Frontend
+The first forecast downloads the Kronos weights from Hugging Face into `~/.cache/huggingface`
+(~100 MB for `kronos-small`). Set `KRONOS_MODEL=kronos-mini` in `backend/.env` for the lighter
+4.1M-parameter model.
+
+On a CPU-only machine, install torch from the CPU wheel index so pip does not pull a
+multi-gigabyte CUDA build:
 
 ```bash
-cd frontend
-npm install
-npm run dev          # http://localhost:5173, proxies /api to :8000
+TORCH_INDEX=https://download.pytorch.org/whl/cpu ./setup.sh
 ```
 
-### 3. Run a bot cycle
+### Running one side only
+
+```bash
+./backend/run.sh     # API only      -> http://localhost:8000
+./frontend/run.sh    # dashboard only -> http://localhost:5173
+```
+
+Both scripts accept an optional `PORT`, forward extra arguments to the underlying server, and
+refuse to start with a clear message if their dependencies are missing.
+
+### Manual setup (no scripts)
+
+```bash
+# backend
+cd backend && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+.venv/bin/uvicorn app.main:app --reload --port 8000
+
+# frontend, in a second terminal
+cd frontend && npm install && npm run dev
+```
+
+### Run a bot cycle
 
 From the dashboard click **Run cycle**, or:
 
