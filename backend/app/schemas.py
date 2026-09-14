@@ -194,6 +194,12 @@ class PositionResponse(BaseModel):
     opened_at: str
     stop_price: float | None
     take_profit_price: float | None
+    priced: bool = Field(
+        default=True,
+        description="False when no mark price was available and the position was valued at its "
+        "cost basis instead, so the UI can show it as unpriced rather than as a flat "
+        "zero-P&L holding.",
+    )
 
 
 class TradeResponse(BaseModel):

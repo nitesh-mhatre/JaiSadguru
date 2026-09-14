@@ -395,13 +395,6 @@ class Store:
             row = conn.execute("SELECT * FROM account WHERE id = 1").fetchone()
         return dict(row) if row else None
 
-    def set_cash(self, cash: float) -> None:
-        with self.connect() as conn:
-            conn.execute(
-                "UPDATE account SET cash = ?, updated_at = ? WHERE id = 1",
-                (cash, utcnow()),
-            )
-
     # ------------------------------------------------------------------ positions
 
     def get_positions(self) -> list[dict[str, Any]]:
@@ -416,51 +409,9 @@ class Store:
             ).fetchone()
         return dict(row) if row else None
 
-    def upsert_position(
-        self,
-        *,
-        symbol: str,
-        qty: float,
-        avg_price: float,
-        opened_at: str,
-        stop_price: float | None,
-        take_profit_price: float | None,
-        signal_id: int | None,
-    ) -> None:
-        with self.connect() as conn:
-            conn.execute(
-                """
-                INSERT INTO positions (
-                    symbol, qty, avg_price, opened_at, updated_at,
-                    stop_price, take_profit_price, signal_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(symbol) DO UPDATE SET
-                    qty               = excluded.qty,
-                    avg_price         = excluded.avg_price,
-                    updated_at        = excluded.updated_at,
-                    stop_price        = excluded.stop_price,
-                    take_profit_price = excluded.take_profit_price,
-                    signal_id         = excluded.signal_id
-                """,
-                (
-                    symbol.upper(),
-                    qty,
-                    avg_price,
-                    opened_at,
-                    utcnow(),
-                    stop_price,
-                    take_profit_price,
-                    signal_id,
-                ),
-            )
-
-    def delete_position(self, symbol: str) -> None:
-        with self.connect() as conn:
-            conn.execute("DELETE FROM positions WHERE symbol = ?", (symbol.upper(),))
-
     # ------------------------------------------------------------------ trades
 
-    def insert_trade(
+    def record_fill(
         self,
         *,
         run_id: int | None,
@@ -473,7 +424,20 @@ class Store:
         fee: float,
         realized_pnl: float | None,
         reason: str,
+        cash_after: float,
+        position_after: dict[str, Any] | None,
     ) -> int:
+        """Persist a fill, the resulting cash balance and the resulting position atomically.
+
+        Cash, the trade log and the position book are three views of one fact. Writing them in a
+        single transaction means a crash can never leave the account holding cash for a trade
+        that was never recorded, or a position that was never paid for.
+
+        ``position_after`` is the complete post-fill position (``None`` closes it), so the caller
+        owns the trading maths and this method only owns durability.
+        """
+        symbol = symbol.upper()
+        now = utcnow()
         with self.connect() as conn:
             cur = conn.execute(
                 """
@@ -485,18 +449,54 @@ class Store:
                 (
                     run_id,
                     signal_id,
-                    symbol.upper(),
+                    symbol,
                     side,
                     qty,
                     price,
                     gross,
                     fee,
                     realized_pnl,
-                    utcnow(),
+                    now,
                     reason,
                 ),
             )
-            return int(cur.lastrowid)
+            trade_id = int(cur.lastrowid)
+
+            conn.execute(
+                "UPDATE account SET cash = ?, updated_at = ? WHERE id = 1",
+                (cash_after, now),
+            )
+
+            if position_after is None:
+                conn.execute("DELETE FROM positions WHERE symbol = ?", (symbol,))
+            else:
+                conn.execute(
+                    """
+                    INSERT INTO positions (
+                        symbol, qty, avg_price, opened_at, updated_at,
+                        stop_price, take_profit_price, signal_id
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(symbol) DO UPDATE SET
+                        qty               = excluded.qty,
+                        avg_price         = excluded.avg_price,
+                        updated_at        = excluded.updated_at,
+                        stop_price        = excluded.stop_price,
+                        take_profit_price = excluded.take_profit_price,
+                        signal_id         = excluded.signal_id
+                    """,
+                    (
+                        symbol,
+                        position_after["qty"],
+                        position_after["avg_price"],
+                        position_after["opened_at"],
+                        now,
+                        position_after.get("stop_price"),
+                        position_after.get("take_profit_price"),
+                        position_after.get("signal_id"),
+                    ),
+                )
+
+            return trade_id
 
     def recent_trades(self, limit: int = 100) -> list[dict[str, Any]]:
         with self.connect() as conn:
