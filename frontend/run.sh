@@ -9,9 +9,37 @@
 # The dev server proxies /api to the backend, so the browser stays on a single origin and
 # development never needs CORS. Point it elsewhere with VITE_API_TARGET.
 #
+# Do NOT source this file (`. run.sh`) — it calls exec and would replace your shell.
+#
+# Resolve our own directory from BASH_SOURCE rather than $0: when a file is *sourced*, $0 is
+# the invoking shell's name, so `dirname "$0"` silently resolves to the wrong place.
+# (This preamble is deliberately duplicated in each script so every one stays runnable on
+# its own — a script that needs its neighbour first is worse than ten repeated lines.)
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+
+if [ "${BASH_SOURCE[0]}" != "$0" ]; then
+  echo "error: this script must be run, not sourced." >&2
+  echo >&2
+  echo "  correct:   ${SCRIPT_DIR}/$(basename -- "${BASH_SOURCE[0]}")" >&2
+  echo "  incorrect: source frontend/run.sh   /   . frontend/run.sh" >&2
+  echo >&2
+  echo "  Sourcing changes where relative paths resolve, because \$0 becomes your" >&2
+  echo "  shell's name instead of this script's path." >&2
+  return 1 2>/dev/null || exit 1
+fi
+
+# Strict mode is enabled only *after* the guard. Enabling it earlier would leak
+# `set -euo pipefail` into an interactive shell that sources this file, and the `return 1`
+# above would then make that shell exit rather than simply report the mistake.
 set -euo pipefail
 
-cd "$(dirname "$0")"
+cd -- "$SCRIPT_DIR"
+
+if [ ! -f package.json ]; then
+  echo "error: package.json not found under $SCRIPT_DIR" >&2
+  echo "       Run this script from a full checkout of the project." >&2
+  exit 1
+fi
 
 PORT="${PORT:-5173}"
 HOST="${HOST:-0.0.0.0}"

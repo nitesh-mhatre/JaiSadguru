@@ -43,6 +43,10 @@ React (Vite + TS)  ──HTTP/JSON──▶  FastAPI (Python)  ──▶  yfinan
 ./dev.sh      # backend + dashboard together; Ctrl-C stops both
 ```
 
+> Run them as `./setup.sh`, **not** `. setup.sh` or `source setup.sh`. Sourcing makes `$0`
+> resolve to your shell rather than the script, so relative paths point at the wrong directory.
+> The scripts detect this and refuse, rather than half-installing somewhere unexpected.
+
 | Service | URL |
 |---------|-----|
 | Dashboard | <http://localhost:5173> |
