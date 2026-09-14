@@ -39,7 +39,7 @@ end to end.** That is the single most important open item.
 | F-03 | `doc/objective.md` — mission, targets, non-goals, rules R1–R6 | ✅ Done | `e89adf5`. Rules R1/R2/R3 recorded verbatim as requested |
 | F-04 | `doc/plan.md` — this file | ✅ Done | `e89adf5`, statuses finalised in `docs/plan-final` |
 | F-05 | Vendor Kronos model source into `backend/vendor/kronos/` | ✅ Done | `c63a8fe`, branch `feat/kronos-vendor`. Pinned to upstream `67b630e`; imports rewritten to package-relative; upstream MIT `LICENSE` retained; provenance + re-vendoring steps in the package README |
-| F-06 | Runnable shell entry points: `setup.sh`, `dev.sh`, `backend/run.sh`, `frontend/run.sh` | ✅ Done | branch `feat/run-scripts`. Verified by `bash -n` on all four, `./frontend/run.sh --version` (exits 0), and `./backend/run.sh` with deps absent (fails loudly, exit 1, prints the fix). `./dev.sh` was observed tearing the dashboard down when the backend died, leaving no orphan processes |
+| F-06 | Runnable shell entry points: `setup.sh`, `dev.sh`, `backend/run.sh`, `frontend/run.sh` | ✅ Done | branches `feat/run-scripts`, `fix/script-sourcing`. Each resolves its own directory from `BASH_SOURCE[0]`, refuses to be sourced, and validates the expected layout before doing work. Verified: `bash -n` clean on all four; sourcing returns 1 with the shell still alive; `./frontend/run.sh --version` exits 0; `./backend/run.sh` with deps absent exits 1 and prints the fix; `./dev.sh` tore the dashboard down when the backend died, no orphans |
 
 ## Milestone M1 — Forecast core
 
@@ -107,6 +107,7 @@ end to end.** That is the single most important open item.
 | B-02 | Vendored Kronos would not import outside its own repo | Upstream `model/kronos.py` does `from model.module import *` and `sys.path.append("../")`, both of which assume the upstream checkout layout | Rewrote to `from .kronos_modules import *` and dropped the `sys.path` manipulation in `backend/vendor/kronos/` | ✅ Fixed (`c63a8fe`) |
 | B-03 | Daily forecasts would be timestamped on weekends and holidays, misaligning them with the actuals they are later scored against | Naive `pd.date_range(last + 1d, periods=n)` steps calendar days, including non-trading days | `future_timestamps()` uses `pd.bdate_range` for daily bars; exchange holidays are deliberately not modelled and the limitation is documented in the function | ✅ Fixed (`0608e8a`) |
 | B-04 | `npm run typecheck` failed on `vite.config.ts`: `Cannot find name 'process'` | `process.env` requires `@types/node`, which the project does not depend on | Switched to Vite's `loadEnv(mode, '.', '')`, so no Node type definitions are needed | ✅ Fixed (`7d226c1`) |
+| B-05 | Running setup as `. setup.sh` created `backend/.venv` in the wrong directory, then died with `Could not open requirements file: 'backend/requirements.txt'` | `cd "$(dirname "$0")"` — when a file is **sourced**, `$0` is the invoking shell's name, not the script's path, so `dirname "$0"` resolves somewhere outside the project and every relative path follows it there | Use `BASH_SOURCE[0]` for the script directory; add an explicit "must be run, not sourced" guard to all four scripts; move `set -euo pipefail` to *after* the guard so sourcing cannot leak strict mode into an interactive shell or make it exit | ✅ Fixed |
 
 ## Decision log
 
@@ -129,6 +130,7 @@ end to end.** That is the single most important open item.
 
 > Newest first. Each entry: date — what landed — branch — commit — verification.
 
+- **2026-09-14** — Fixed B-05: scripts resolved their directory from `$0`, which is the *shell's* name when a file is sourced, so `. setup.sh` installed into the wrong directory. Now uses `BASH_SOURCE[0]`, guards against sourcing, and enables strict mode only after the guard so sourcing cannot kill the caller's shell — `fix/script-sourcing` — **verified: sourcing returns 1 with the shell surviving; layout check rejects a partial checkout; all four still pass `bash -n` and their execution paths**.
 - **2026-09-14** — Runnable shell entry points: `setup.sh` (venv + npm, with a `TORCH_INDEX` CPU-wheel option), `dev.sh` (both services, shared teardown), `backend/run.sh` (venv-aware, fails loudly without deps, warns when torch is missing), `frontend/run.sh` (installs on first run, `exec`s vite) — `feat/run-scripts` — **verified: `bash -n` clean on all four; `./frontend/run.sh --version` exit 0; `./backend/run.sh` with deps absent exits 1 with the fix printed; `./dev.sh` tore down the dashboard when the backend died, no orphans**.
 - **2026-09-14** — Plan consolidated to final statuses, bug log completed (B-04), deviation from R1 recorded — `docs/plan-final` — markdown only.
 - **2026-09-14** — React dashboard: watchlist, SVG forecast chart, signal rationale panel, paper portfolio with equity curve, trade log, header controls and runs strip — `feat/react-dashboard` — `7d226c1` — **verified: `npm run typecheck` exit 0, `npm run build` exit 0 (250.08 kB / 77.39 kB gzip)**.
