@@ -128,12 +128,17 @@ A task is Done only when **all** of these hold:
 
 | Milestone | Content | Status |
 |-----------|---------|--------|
-| **M0 — Foundation** | Docs, repo scaffold, vendored Kronos | ✅ done |
-| **M1 — Forecast core** | Data layer, Kronos inference, API | ✅ done |
-| **M2 — Signal + paper trading** | Signal rules, portfolio engine, persistence | ✅ done |
-| **M3 — Dashboard** | React UI for prices, forecast, signals, portfolio, trades | ✅ done |
-| **M4 — Proof** | Backtest harness, forecast-accuracy tracking, tests | ⬜ next |
-| **M5 — Hardening** | Scheduler, retries, structured logging, Docker | ⬜ later |
+| **M0 — Foundation** | Docs, repo scaffold, vendored Kronos | ✅ built |
+| **M1 — Forecast core** | Data layer, Kronos inference, API | ✅ built · ⚠️ not yet executed end to end |
+| **M2 — Signal + paper trading** | Signal rules, portfolio engine, persistence | ✅ built · ⚠️ not yet executed end to end |
+| **M3 — Dashboard** | React UI for prices, forecast, signals, portfolio, trades | ✅ built and verified (`tsc` + `vite build`) |
+| **M4 — Proof** | Backend end-to-end run, backtest harness, accuracy tracking, tests | ⬜ next |
+| **M5 — Hardening** | Retries, structured logging, Docker | ⬜ later — scheduler done early in M3's API work |
+
+> **"Built" is not "working".** The backend was developed in an environment with no `torch`, no
+> `pip` and no GPU, so it has only been statically verified (see bug B-01 in `plan.md`). Running it
+> end to end and recording the result is the first task of M4 — task **P-00**. No claim about
+> forecast quality may be made before that, and none is.
 
 ## 9. Risk register
 
