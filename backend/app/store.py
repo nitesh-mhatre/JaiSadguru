@@ -285,17 +285,48 @@ class Store:
         record["points"] = _loads(record.pop("points_json")) or []
         return record
 
-    def latest_forecast(self, symbol: str) -> dict[str, Any] | None:
+    def latest_forecast(self, symbol: str, interval: str | None = None) -> dict[str, Any] | None:
+        """Most recent stored forecast for ``symbol``, optionally within one bar size."""
+        query = "SELECT * FROM forecasts WHERE symbol = ?"
+        params: list[Any] = [symbol.upper()]
+        if interval is not None:
+            query += " AND interval = ?"
+            params.append(interval)
+        query += " ORDER BY id DESC LIMIT 1"
         with self.connect() as conn:
-            row = conn.execute(
-                "SELECT * FROM forecasts WHERE symbol = ? ORDER BY id DESC LIMIT 1",
-                (symbol.upper(),),
-            ).fetchone()
+            row = conn.execute(query, params).fetchone()
         if not row:
             return None
         record = dict(row)
         record["points"] = _loads(record.pop("points_json")) or []
         return record
+
+    def latest_forecast_per_symbol_and_interval(self) -> list[dict[str, Any]]:
+        """Most recent stored forecast for every (symbol, interval) pair.
+
+        The dashboard charts one bar size at a time, so a 5m re-forecast must not hide the 1d
+        forecast: grouping by interval keeps every bar size's latest prediction retrievable.
+        Without this, switching the chart between 1m and 30m would keep showing whichever
+        forecast happened to be written last — the same candles at every bar size.
+        """
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT f.* FROM forecasts f
+                JOIN (
+                    SELECT symbol, interval, MAX(id) AS max_id
+                      FROM forecasts
+                     GROUP BY symbol, interval
+                ) latest ON f.id = latest.max_id
+                 ORDER BY f.symbol
+                """
+            ).fetchall()
+        results: list[dict[str, Any]] = []
+        for row in rows:
+            record = dict(row)
+            record["points"] = _loads(record.pop("points_json")) or []
+            results.append(record)
+        return results
 
     def recent_forecasts(self, limit: int = 50) -> list[dict[str, Any]]:
         """Recent forecast headers, without the bulky point arrays."""

@@ -107,7 +107,12 @@ export const api = {
   removeWatchlistEntry: (symbol: string) =>
     request<MessageResponse>(`/api/watchlist/${enc(symbol)}`, { method: 'DELETE' }),
 
-  latestForecasts: () => request<ForecastResponse[]>('/api/forecast/latest'),
+  latestForecasts: (interval?: string) =>
+    request<ForecastResponse[]>(
+      interval
+        ? `/api/forecast/latest?interval=${encodeURIComponent(interval)}`
+        : '/api/forecast/latest',
+    ),
 
   portfolio: () => request<PortfolioResponse>('/api/portfolio'),
 
@@ -151,14 +156,14 @@ const CHART_BARS = 180
 export async function loadDashboard(interval?: string): Promise<DashboardData> {
   // Config supplies the watchlist to the UI; the market call relies on the backend's own
   // configured watchlist, so everything can be fetched in parallel in one round trip.
-  // `interval` selects the bar size for the chart (and, via the forecast endpoint, the
-  // horizon denomination). Undefined = the backend's configured default (daily).
+  // `interval` selects the bar size for the chart AND filters the stored forecasts to that bar
+  // size, so the forecast overlay always matches the candles being drawn.
   const [health, config, market, signals, forecasts, portfolio, trades, runs] = await Promise.all([
     api.health(),
     api.config(),
     api.market(CHART_BARS, undefined, interval),
     api.latestSignals(),
-    api.latestForecasts(),
+    api.latestForecasts(interval),
     api.portfolio(),
     api.trades(100),
     api.runs(10),

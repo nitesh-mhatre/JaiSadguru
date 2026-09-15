@@ -135,9 +135,14 @@ export default function App() {
     [data, activeSymbol],
   )
 
+  // Signals are stored per symbol without an interval column, but the forecast's bar size is
+  // recorded in the rationale — match on it so a 1d signal is not shown while charting 5m bars.
   const signal = useMemo(
-    () => data?.signals.find((item) => item.symbol === activeSymbol) ?? null,
-    [data, activeSymbol],
+    () =>
+      data?.signals.find(
+        (item) => item.symbol === activeSymbol && item.rationale.model?.interval === interval,
+      ) ?? null,
+    [data, activeSymbol, interval],
   )
 
   // A freshly run forecast wins over the stored one, but only for the symbol it belongs to.

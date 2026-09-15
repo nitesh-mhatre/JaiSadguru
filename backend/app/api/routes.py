@@ -408,13 +408,24 @@ def forecast_symbol(
 @router.get("/forecast/latest", tags=["forecast"], response_model=list[ForecastResponse])
 def latest_forecasts(
     limit: int = Query(default=20, ge=1, le=200),
+    interval: str | None = Query(default=None, description="Filter to one bar size, e.g. 5m."),
     store: Store = Depends(get_store),
     watchlist: WatchlistService = Depends(get_watchlist),
 ) -> list[ForecastResponse]:
-    """Most recent stored forecast per symbol (metadata only — points are on ``/forecast/{symbol}``)."""
+    """Most recent stored forecast per symbol (metadata only — points are on ``/forecast/{symbol}``).
+
+    With ``interval`` set, only forecasts made on that bar size are returned. The dashboard
+    passes the chart's selected interval so the overlay matches the candles: without the filter,
+    a forecast made on daily bars would be drawn over 5m candles and look identical at every
+    bar size.
+    """
+    try:
+        validated_interval = _validate_interval(interval)
+    except HTTPException:
+        raise
     responses: list[ForecastResponse] = []
     for symbol in watchlist.symbols():
-        row = store.latest_forecast(symbol)
+        row = store.latest_forecast(symbol, validated_interval)
         if row is None:
             continue
         points = row.get("points") or []
