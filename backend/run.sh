@@ -44,37 +44,51 @@ if [ ! -f app/main.py ]; then
   exit 1
 fi
 
-# Prefer the project virtualenv, so a stray global uvicorn cannot be picked up by accident.
-UVICORN="uvicorn"
-PYTHON="python3"
-if [ -x ".venv/bin/python" ]; then
+# Locate the interpreter built by ./setup.sh. Resolving it explicitly — rather than trusting
+# PATH and activation — means this behaves identically whether or not you remembered to
+# `conda activate` first, which is the most common way to end up running the wrong Python.
+CONDA_ENV_NAME="${CONDA_ENV_NAME:-jaisadguru}"
+
+PYTHON=""
+ENV_LABEL=""
+
+# `conda env list` prints the name first and the prefix last, with an optional `*` marking
+# the active env.
+if command -v conda >/dev/null 2>&1; then
+  PREFIX="$(conda env list 2>/dev/null | awk -v n="$CONDA_ENV_NAME" '$1 == n { print $NF; exit }')"
+  if [ -n "$PREFIX" ] && [ -x "$PREFIX/bin/python" ]; then
+    PYTHON="$PREFIX/bin/python"
+    ENV_LABEL="conda env '$CONDA_ENV_NAME'"
+  fi
+fi
+
+if [ -z "$PYTHON" ] && [ -x ".venv/bin/python" ]; then
   PYTHON=".venv/bin/python"
-fi
-if [ -x ".venv/bin/uvicorn" ]; then
-  UVICORN=".venv/bin/uvicorn"
+  ENV_LABEL="backend/.venv"
 fi
 
-if [ ! -x "$UVICORN" ] && ! command -v "$UVICORN" >/dev/null 2>&1; then
+if [ -z "$PYTHON" ] && command -v python3 >/dev/null 2>&1; then
+  PYTHON="python3"
+  ENV_LABEL="system python3"
+fi
+
+if [ -z "$PYTHON" ]; then
   cat >&2 <<'MSG'
-error: uvicorn was not found.
+error: no Python interpreter was found.
 
-Set up the environment first, from the project root:
+Set up the backend environment first, from the project root:
 
   ./setup.sh
-
-or manually, from backend/:
-
-  python3 -m venv .venv
-  .venv/bin/pip install -r requirements.txt
 
 MSG
   exit 1
 fi
 
 if ! "$PYTHON" -c "import fastapi" >/dev/null 2>&1; then
-  echo "error: FastAPI is not importable with $PYTHON." >&2
-  echo "       Install the backend dependencies:" >&2
-  echo "         $PYTHON -m pip install -r requirements.txt" >&2
+  echo "error: FastAPI is not importable with $PYTHON" >&2
+  echo "       ($ENV_LABEL)" >&2
+  echo "       Build the backend environment from the project root:" >&2
+  echo "         ./setup.sh" >&2
   exit 1
 fi
 
@@ -82,14 +96,17 @@ fi
 # problem through /api/health. But every forecast would fail, so say so now rather than
 # letting it surface as a confusing click later.
 if ! "$PYTHON" -c "import torch" >/dev/null 2>&1; then
-  cat >&2 <<'MSG'
-warning: torch is not installed — the API will start but every forecast will fail,
-         and /api/health will report "degraded".
-
-  CPU-only machines (avoids a multi-gigabyte CUDA download):
-    .venv/bin/pip install torch --index-url https://download.pytorch.org/whl/cpu
-
-MSG
+  # Plain echo rather than a heredoc so that $PYTHON interpolates — quoting the heredoc
+  # delimiter would have printed the variable name literally.
+  echo "warning: torch is not installed — the API will start but every forecast will fail," >&2
+  echo "         and /api/health will report \"degraded\"." >&2
+  echo >&2
+  echo "  Install it into the backend environment:" >&2
+  echo "    $PYTHON -m pip install torch" >&2
+  echo >&2
+  echo "  Or rebuild the environment with CPU-only torch (no multi-gigabyte CUDA build):" >&2
+  echo "    TORCH_INDEX=https://download.pytorch.org/whl/cpu ./setup.sh" >&2
+  echo >&2
 fi
 
 if [ ! -f .env ] && [ -f .env.example ]; then
@@ -97,5 +114,8 @@ if [ ! -f .env ] && [ -f .env.example ]; then
 fi
 
 echo "JaiSadguru API → http://localhost:${PORT}   (docs: http://localhost:${PORT}/docs)"
+echo "                $ENV_LABEL · $("$PYTHON" -V 2>&1)"
 
-exec "$UVICORN" app.main:app --host "$HOST" --port "$PORT" "$@"
+# `-m uvicorn` rather than the uvicorn entry point: it works identically for a conda env, a
+# venv and a system interpreter, with no need to resolve where the script happens to live.
+exec "$PYTHON" -m uvicorn app.main:app --host "$HOST" --port "$PORT" "$@"

@@ -1,0 +1,38 @@
+# Conda environment for the JaiSadguru backend.
+#
+# Preferred way to build it:
+#
+#   ./setup.sh                 # creates this env and installs everything
+#
+# Or by hand:
+#
+#   conda env create -n jaisadguru -f backend/environment.yml
+#   conda run -n jaisadguru python -m pip install -r backend/requirements.txt
+#
+# ---------------------------------------------------------------------------
+# Why conda rather than a plain venv
+# ---------------------------------------------------------------------------
+# conda-forge ships prebuilt aarch64 binaries for the whole numerical stack. On a fresh
+# aarch64 interpreter such as Python 3.14 there are no numpy or pandas wheels yet, so pip
+# falls back to compiling them from source and dies on a missing `Python.h` — which is a
+# missing python3-devel package, not a problem with this project.
+#
+# Pinning the interpreter to 3.12 here and taking numpy/pandas from conda sidesteps that
+# entirely.
+#
+# ---------------------------------------------------------------------------
+# Scope of this file
+# ---------------------------------------------------------------------------
+# Only the *compiled numerical core* and the interpreter are declared here. Everything else
+# — FastAPI, yfinance, torch, the Kronos runtime deps — is installed by pip from
+# `backend/requirements.txt`, which stays the single source of truth for those. Keeping the
+# compiled stack out of requirements.txt's resolution path is the whole point: it means pip
+# never has to build numpy or pandas.
+name: jaisadguru
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - numpy>=1.26
+  - pandas>=2.2
+  - pip

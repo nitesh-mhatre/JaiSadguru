@@ -7,8 +7,16 @@ pydantic==2.10.4
 
 # ---------------------------------------------------------------------------
 # Data
+#
+# numpy and pandas are declared as floors, not exact pins, on purpose. The backend is
+# normally built with conda (see environment.yml), which supplies a tested numpy/pandas
+# pair for the interpreter; an exact pin here would make pip try to replace conda's build
+# with its own, which is exactly the source-compile path we are avoiding.
+#
+# Installing these from pip only works on a Python version that has wheels for them —
+# 3.10 through 3.13 today. On 3.14+ use the conda environment instead.
 # ---------------------------------------------------------------------------
-pandas==2.2.2
+pandas>=2.2.0
 numpy>=1.26.0
 # Free, keyless market data. Not pinned tightly: yfinance tracks Yahoo's schema
 # closely and needs to be updatable without a code change.
@@ -17,11 +25,10 @@ yfinance>=0.2.50
 # ---------------------------------------------------------------------------
 # Kronos model runtime (required by backend/vendor/kronos)
 #
-# CPU-only machines: install torch from the CPU wheel index first, then this
-# file, so pip does not pull a multi-gigabyte CUDA build:
+# torch publishes aarch64 CPU wheels on PyPI, so this installs cleanly on ARM servers.
+# For an x86 machine without a GPU, avoid pulling a multi-gigabyte CUDA build:
 #
-#   pip install torch --index-url https://download.pytorch.org/whl/cpu
-#   pip install -r requirements.txt
+#   TORCH_INDEX=https://download.pytorch.org/whl/cpu ./setup.sh
 # ---------------------------------------------------------------------------
 torch>=2.2.0
 einops==0.8.1
