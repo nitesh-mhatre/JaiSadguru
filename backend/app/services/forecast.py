@@ -277,17 +277,24 @@ class ForecastService:
             raise ForecastError(
                 symbol, f"unsupported interval {interval!r} (allowed: {sorted(ALLOWED_INTERVALS)})"
             )
+
+        notes: list[str] = []
         # Intraday history is capped by the data provider, so intraday contexts must stay small
-        # enough to actually be satisfiable (see ``INTRADAY_MAX_LOOKBACK`` in config).
+        # enough to actually be satisfiable (``INTRADAY_MAX_LOOKBACK`` in config). The configured
+        # daily LOOKBACK (400) cannot be satisfied on intraday bars — clamp and say so rather
+        # than refuse: the user asked for a 5m forecast and a 240-bar 5m context is a meaningful
+        # one. The note travels into the forecast and signal rationale, so the clamped context is
+        # visible in the UI, never silent (``doc/objective.md`` rule R6).
         if interval in INTRADAY_INTERVALS and lookback > INTRADAY_MAX_LOOKBACK:
-            raise ForecastError(
-                symbol,
-                f"lookback {lookback} exceeds the {INTRADAY_MAX_LOOKBACK}-bar context allowed "
-                f"for intraday interval {interval!r}",
+            notes.append(
+                f"context clamped from {lookback} to {INTRADAY_MAX_LOOKBACK} bars for intraday "
+                f"interval {interval!r} (free intraday history is capped)"
             )
+            lookback = INTRADAY_MAX_LOOKBACK
 
         data = self.data.fetch(symbol, interval=interval, refresh=refresh)
-        x_df, x_timestamp, y_timestamp, notes = self._prepare_inputs(data, lookback, horizon)
+        x_df, x_timestamp, y_timestamp, prep_notes = self._prepare_inputs(data, lookback, horizon)
+        notes.extend(prep_notes)
 
         predictor = self.runtime.ensure_loaded()
 

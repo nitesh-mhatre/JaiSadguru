@@ -243,11 +243,13 @@ def period_for_interval(interval: str) -> str:
 #: a 400-bar lookback cannot always be satisfied.
 INTRADAY_INTERVALS: frozenset[str] = frozenset({"1m", "5m", "15m", "30m", "1h"})
 
-#: Largest Kronos context allowed on intraday bars. Free 1m history spans 7 days — about 7k
+#: Largest Kronos context used on intraday bars. Free 1m history spans 7 days — about 7k
 #: bars for a 24/7 market but far fewer for session-traded ones — and 60m history spans 60
 #: days, so anything near the 512 context risks asking for bars that do not exist. 240 bars
 #: keeps every intraday interval comfortably inside its cap while staying above the 64-bar
-#: minimum the forecast service requires.
+#: minimum the forecast service requires. The forecast service clamps intraday contexts to
+#: this value (with a visible note) rather than refusing, so the daily LOOKBACK default can
+#: coexist with intraday intervals.
 INTRADAY_MAX_LOOKBACK = 240
 
 
@@ -331,16 +333,10 @@ class Settings:
             raise ValueError(
                 f"INTERVAL must be one of {sorted(ALLOWED_INTERVALS)}, got {self.interval!r}"
             )
-        # 400 daily bars ≈ 19 months of context; on 1m bars the same number needs more history
-        # than yfinance returns (7d ≈ 1,980 bars at 24/7, but ~2.3k for a 400-bar lookback is
-        # fine) while on 1wk bars it would exceed most listings' lifetime. Keep intraday
-        # contexts small enough that the capped history actually covers them.
-        if self.interval in INTRADAY_INTERVALS and self.lookback > INTRADAY_MAX_LOOKBACK:
-            raise ValueError(
-                f"LOOKBACK={self.lookback} exceeds the {INTRADAY_MAX_LOOKBACK}-bar context used "
-                f"for intraday intervals on {self.interval!r} (free intraday history is capped). "
-                "Lower LOOKBACK for intraday runs."
-            )
+        # Intraday LOOKBACK is NOT validated here on purpose: the daily default (400) is
+        # unsatisfiable on intraday bars, but refusing to boot over it would turn a workable
+        # configuration into an error the user must decode. The forecast service clamps the
+        # context per request and records a visible note instead (rule R6).
         if self.kronos_model not in MODEL_REGISTRY:
             raise ValueError(
                 f"KRONOS_MODEL must be one of {sorted(MODEL_REGISTRY)}, got {self.kronos_model!r}"
