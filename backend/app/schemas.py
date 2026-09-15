@@ -331,6 +331,13 @@ class ResetRequest(BaseModel):
 class ForecastRequest(BaseModel):
     """Optional per-request overrides for a forecast."""
 
+    interval: str | None = Field(
+        default=None,
+        description=(
+            "Bar size to forecast on — '1m' '5m' '15m' '30m' '1h' '1d' '1wk'. The prediction "
+            "and its horizon are denominated in these bars. Defaults to the configured INTERVAL."
+        ),
+    )
     lookback: int | None = Field(default=None, gt=0)
     pred_len: int | None = Field(default=None, gt=0, le=120)
     sample_count: int | None = Field(default=None, gt=0, le=32)

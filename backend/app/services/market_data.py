@@ -21,9 +21,9 @@ from pathlib import Path
 
 import pandas as pd
 
-from ..config import Settings
+from ..config import CACHE_TTL_MINUTES, Settings
 from ..config import settings as default_settings
-from ..config import classify_symbol
+from ..config import classify_symbol, period_for_interval
 
 logger = logging.getLogger(__name__)
 
@@ -153,9 +153,14 @@ def future_timestamps(
     futures in the watchlist. **Crypto trades every calendar day**, so its daily bars are stepped
     per calendar day instead — classifying crypto bars on business days would silently skip every
     weekend, exactly the misalignment B-03 fixed for the other side. NSE/BSE sessions are also
-    Mon-Fri, so Indian equities share the business-day path. Exchange holidays are not modelled —
-    documented, and harmless because the scoring step joins on timestamps rather than assuming a
-    fixed offset.
+    Mon-Fri, so Indian equities share the business-day path.
+
+    Intraday bars need the same care at a finer grain: stepping a fixed 5-minute delta would run
+    the forecast straight through the overnight gap and the weekend. For session-traded assets
+    the observed *times of day* of the last session are replayed across subsequent business days,
+    so predicted bars land inside a real session. Crypto has no sessions — its bars step by the
+    observed spacing continuously. Exchange holidays are not modelled — documented, and harmless
+    because the scoring step joins on timestamps rather than assuming a fixed offset.
 
     Returns an empty index when the horizon is not positive.
     """
@@ -174,14 +179,58 @@ def future_timestamps(
     if interval == "1wk":
         return pd.date_range(start=last, periods=horizon + 1, freq="7D")[1:]
 
-    # Intraday: reuse the observed bar spacing rather than guessing.
+    spacing = _observed_spacing(index)
+
+    if asset_class == "crypto":
+        # 24/7: intraday bars are continuous, so plain spacing is exact.
+        return pd.date_range(start=last, periods=horizon + 1, freq=spacing)[1:]
+
+    # Session-traded intraday: replay the observed times of day over the next business days.
+    return _session_forward_timestamps(index, horizon, spacing)
+
+
+def _observed_spacing(index: pd.DatetimeIndex) -> pd.Timedelta:
+    """Median gap between observed bars, with a safe fallback."""
     if len(index) >= 3:
         spacing = index.to_series().diff().dropna().median()
     else:
         spacing = pd.Timedelta(hours=1)
     if pd.isna(spacing) or spacing <= pd.Timedelta(0):
         spacing = pd.Timedelta(hours=1)
-    return pd.date_range(start=last, periods=horizon + 1, freq=spacing)[1:]
+    return pd.Timedelta(spacing)
+
+
+def _session_forward_timestamps(
+    index: pd.DatetimeIndex, horizon: int, spacing: pd.Timedelta
+) -> pd.DatetimeIndex:
+    """Intraday timestamps for session-traded assets, kept inside real sessions.
+
+    The times of day observed on the final trading day are treated as the session template and
+    replayed on the following business days, so a 5m bar at 09:15 is followed by 09:20, 09:25…
+    within the session instead of stepping a fixed delta through the overnight gap. When the
+    last day has fewer than two bars there is no session shape to learn, and the function falls
+    back to plain continuous spacing — the behaviour this replaces, made explicit.
+    """
+    last_date = index[-1].normalize()
+    # All bars sharing the final bar's calendar day form the session template. The index is
+    # sorted, so they are the contiguous tail of the series.
+    template = index[index.normalize() == last_date]
+    if len(template) < 2:
+        return pd.date_range(start=index[-1], periods=horizon + 1, freq=spacing)[1:]
+
+    times = template.time
+    # Business days strictly after the last observed date. Starting from the day *after*
+    # avoids the bdate_range off-by-one when the last bar itself fell on a weekend.
+    upcoming = pd.bdate_range(start=last_date + pd.Timedelta(days=1), periods=horizon + 2)
+
+    generated: list[pd.Timestamp] = []
+    for day in upcoming:
+        for time_of_day in times:
+            generated.append(pd.Timestamp.combine(day, time_of_day))
+            if len(generated) == horizon:
+                return pd.DatetimeIndex(generated)
+    # Unreachable while ``upcoming`` has enough days, but keep the contract honest.
+    return pd.DatetimeIndex(generated[:horizon])
 
 
 # ------------------------------------------------------------------------------------
@@ -223,11 +272,18 @@ class MarketDataService:
         except OSError as exc:  # a cache that cannot be written must not fail the request
             logger.warning("Could not write market-data cache %s: %s", path, exc)
 
-    def _cache_is_fresh(self, modified_at: float | None) -> bool:
+    def _cache_is_fresh(self, modified_at: float | None, interval: str | None = None) -> bool:
         if modified_at is None:
             return False
+        # TTL follows the requested interval: a 1m bar is old news within a minute while daily
+        # bars survive most of a day. Falls back to the configured default when unspecified.
+        ttl = (
+            CACHE_TTL_MINUTES.get(interval, self.settings.cache_ttl_minutes)
+            if interval is not None
+            else self.settings.cache_ttl_minutes
+        )
         age_minutes = (datetime.now(timezone.utc).timestamp() - modified_at) / 60.0
-        return age_minutes < self.settings.cache_ttl_minutes
+        return age_minutes < ttl
 
     # -------------------------------------------------------------- normalisation
 
@@ -305,7 +361,7 @@ class MarketDataService:
         cached, modified_at = (None, None)
         if self.settings.cache_enabled:
             cached, modified_at = self._read_cache(symbol, interval)
-            if cached is not None and not refresh and self._cache_is_fresh(modified_at):
+            if cached is not None and not refresh and self._cache_is_fresh(modified_at, interval):
                 return MarketDataResult(
                     symbol=symbol,
                     name=name,
@@ -355,7 +411,7 @@ class MarketDataService:
     def _download(self, symbol: str, interval: str) -> pd.DataFrame:
         """Download and normalise bars straight from ``yfinance``."""
         yf = _import_yfinance()
-        period = self.settings.history_period
+        period = period_for_interval(interval)
         try:
             raw = yf.download(
                 symbol,
@@ -369,10 +425,17 @@ class MarketDataService:
             raise MarketDataError(symbol, f"download failed: {exc}") from exc
         return self.normalize(raw, symbol)
 
-    def history(self, symbol: str, *, rows: int | None = None, refresh: bool = False) -> MarketDataResult:
+    def history(
+        self,
+        symbol: str,
+        *,
+        rows: int | None = None,
+        refresh: bool = False,
+        interval: str | None = None,
+    ) -> MarketDataResult:
         """Fetch bars and keep only the most recent ``rows`` (default: the configured lookback)."""
         limit = rows or self.settings.lookback
-        result = self.fetch(symbol, refresh=refresh)
+        result = self.fetch(symbol, interval=interval, refresh=refresh)
         if len(result.frame) > limit:
             result.frame = result.frame.tail(limit)
         return result

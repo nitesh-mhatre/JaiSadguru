@@ -73,17 +73,20 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 /** Symbols contain `^` and `=`, which need encoding to survive a URL path. */
 const enc = (symbol: string) => encodeURIComponent(symbol)
 
+/** `&interval=` query fragment, omitted when no interval override is set. */
+const intervalParam = (interval?: string) => (interval ? `&interval=${encodeURIComponent(interval)}` : '')
+
 export const api = {
   health: () => request<HealthResponse>('/api/health'),
 
   config: () => request<ConfigResponse>('/api/config'),
 
   /** Omitting `symbols` makes the backend use its configured watchlist. */
-  market: (rows: number, symbols?: string[]) =>
+  market: (rows: number, symbols?: string[], interval?: string) =>
     request<CandleSeries[]>(
       symbols && symbols.length > 0
-        ? `/api/market?symbols=${encodeURIComponent(symbols.join(','))}&rows=${rows}`
-        : `/api/market?rows=${rows}`,
+        ? `/api/market?symbols=${encodeURIComponent(symbols.join(','))}&rows=${rows}${intervalParam(interval)}`
+        : `/api/market?rows=${rows}${intervalParam(interval)}`,
     ),
 
   latestSignals: () => request<SignalResponse[]>('/api/signals/latest'),
@@ -112,10 +115,10 @@ export const api = {
 
   runs: (limit = 10) => request<RunResponse[]>(`/api/runs?limit=${limit}`),
 
-  forecastSymbol: (symbol: string, refresh = false) =>
+  forecastSymbol: (symbol: string, refresh = false, interval?: string) =>
     request<ForecastBundle>(`/api/forecast/${enc(symbol)}`, {
       method: 'POST',
-      body: JSON.stringify({ refresh }),
+      body: JSON.stringify({ refresh, interval: interval ?? null }),
     }),
 
   runCycle: (trade = true, refresh = false) =>
@@ -145,13 +148,15 @@ export interface DashboardData {
 /** Bars of history the chart requests; enough to show context without a heavy payload. */
 const CHART_BARS = 180
 
-export async function loadDashboard(): Promise<DashboardData> {
+export async function loadDashboard(interval?: string): Promise<DashboardData> {
   // Config supplies the watchlist to the UI; the market call relies on the backend's own
   // configured watchlist, so everything can be fetched in parallel in one round trip.
+  // `interval` selects the bar size for the chart (and, via the forecast endpoint, the
+  // horizon denomination). Undefined = the backend's configured default (daily).
   const [health, config, market, signals, forecasts, portfolio, trades, runs] = await Promise.all([
     api.health(),
     api.config(),
-    api.market(CHART_BARS),
+    api.market(CHART_BARS, undefined, interval),
     api.latestSignals(),
     api.latestForecasts(),
     api.portfolio(),

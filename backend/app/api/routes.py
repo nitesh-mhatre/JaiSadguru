@@ -16,7 +16,7 @@ import time
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from .. import __version__
-from ..config import ALLOWED_INTERVALS, Settings, classify_symbol
+from ..config import ALLOWED_INTERVALS, Settings, classify_symbol, period_for_interval
 from ..config import settings as default_settings
 from ..schemas import (
     AssetInfo,
@@ -293,9 +293,21 @@ def _default_rows() -> int:
     return default_settings.lookback
 
 
+def _validate_interval(interval: str | None) -> str | None:
+    """Reject an unknown interval with a 422 naming the supported set."""
+    if interval is None:
+        return None
+    try:
+        period_for_interval(interval)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return interval
+
+
 @router.get("/market/{symbol}", response_model=CandleSeries, tags=["market"])
 def market_symbol(
     symbol: str,
+    interval: str | None = Query(default=None, description="Bar size: 1m 5m 15m 30m 1h 1d 1wk."),
     rows: int = Query(default=0, ge=0, le=10_000, description="0 returns every cached bar."),
     refresh: bool = Query(default=False),
     data: MarketDataService = Depends(get_market_data),
@@ -306,7 +318,7 @@ def market_symbol(
     ``encodeURIComponent`` for exactly this reason.
     """
     try:
-        result = data.fetch(symbol, refresh=refresh)
+        result = data.fetch(symbol, interval=_validate_interval(interval), refresh=refresh)
     except MarketDataError as exc:
         raise HTTPException(status_code=502, detail=exc.reason) from exc
     return _market_series(result, rows or _default_rows())
@@ -315,12 +327,14 @@ def market_symbol(
 @router.get("/market", response_model=list[CandleSeries], tags=["market"])
 def market_watchlist(
     symbols: str | None = Query(default=None, description="Comma-separated; defaults to the live watchlist."),
+    interval: str | None = Query(default=None, description="Bar size: 1m 5m 15m 30m 1h 1d 1wk."),
     rows: int = Query(default=0, ge=0, le=10_000),
     refresh: bool = Query(default=False),
     data: MarketDataService = Depends(get_market_data),
     watchlist: WatchlistService = Depends(get_watchlist),
 ) -> list[CandleSeries]:
     """Historical bars for several symbols. Symbols that fail are omitted rather than guessed."""
+    validated_interval = _validate_interval(interval)
     requested = (
         [s.strip() for s in symbols.split(",") if s.strip()]
         if symbols
@@ -329,7 +343,7 @@ def market_watchlist(
     series: list[CandleSeries] = []
     for symbol in requested:
         try:
-            result = data.fetch(symbol, refresh=refresh)
+            result = data.fetch(symbol, interval=validated_interval, refresh=refresh)
         except MarketDataError as exc:
             logger.warning("Skipping %s: %s", symbol, exc.reason)
             continue
@@ -364,6 +378,7 @@ def forecast_symbol(
         outcome, signal = cycle.forecast_symbol(
             symbol,
             refresh=options.refresh,
+            interval=_validate_interval(options.interval),
             lookback=options.lookback,
             pred_len=options.pred_len,
             sample_count=options.sample_count,

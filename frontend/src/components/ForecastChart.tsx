@@ -1,9 +1,20 @@
 import type { Candle, CandleSeries, ForecastResponse } from '../types'
-import { fmtDate, fmtFractionPct, fmtPrice, signClass } from '../format'
+import {
+  fmtBarDateTime,
+  fmtBarTime,
+  fmtFractionPct,
+  fmtPrice,
+  intervalLabel,
+  isIntraday,
+  signClass,
+} from '../format'
 
 const WIDTH = 1000
 const HEIGHT = 420
+const HEIGHT_COMPACT = 300
 const PAD = { top: 18, right: 72, bottom: 30, left: 10 }
+/** Aim for roughly this many axis labels so a phone does not render an unreadable thicket. */
+const TARGET_TICKS = 6
 
 const UP = '#26a69a'
 const DOWN = '#ef5350'
@@ -13,6 +24,10 @@ const FORECAST_DOWN = '#c084fc'
 interface Props {
   series: CandleSeries | null
   forecast: ForecastResponse | null
+  /** Bar size label of the selected interval, e.g. "5m" — shown in the chart legend. */
+  interval?: string | null
+  /** Compact mode for phone-sized cards: shorter chart, fewer labels. */
+  compact?: boolean
 }
 
 /**
@@ -22,10 +37,18 @@ interface Props {
  * the dependency graph at React alone (see the Decision log in `doc/plan.md`). The forecast is
  * drawn as faded candles plus a bright close-path polyline — faded because it is a sample, not a
  * price, and the line because that is what a reader actually compares against the history.
+ *
+ * The time axis is interval-aware: intraday bars are labelled with clock times (a date would be
+ * meaningless when the whole visible window is one trading day), daily and weekly bars with
+ * dates. Tick labels are spaced to a target count rather than drawn on every bar so the axis
+ * stays readable on a phone. A `<time>` element in `chart-meta` states the bar size explicitly,
+ * so "1m" and "1d" charts can never be confused.
  */
-export function ForecastChart({ series, forecast }: Props) {
+export function ForecastChart({ series, forecast, interval, compact = false }: Props) {
   const history: Candle[] = series?.candles ?? []
   const points = forecast?.points ?? []
+  const height = compact ? HEIGHT_COMPACT : HEIGHT
+  const intraday = isIntraday(interval ?? series?.interval)
 
   if (history.length === 0 && points.length === 0) {
     return (
@@ -49,7 +72,7 @@ export function ForecastChart({ series, forecast }: Props) {
   const yMax = rawMax + padding
 
   const plotWidth = WIDTH - PAD.left - PAD.right
-  const plotHeight = HEIGHT - PAD.top - PAD.bottom
+  const plotHeight = height - PAD.top - PAD.bottom
   const slot = plotWidth / Math.max(bars.length, 1)
   const bodyWidth = Math.max(slot * 0.62, 1)
 
@@ -71,14 +94,38 @@ export function ForecastChart({ series, forecast }: Props) {
   const expectedReturn =
     finalForecast != null && lastActual ? finalForecast / lastActual - 1 : 0
 
+  // Time-axis ticks: evenly spaced indices with a time label, thinned to ~TARGET_TICKS so the
+  // axis stays readable when there are hundreds of bars.
+  const tickStep = Math.max(1, Math.ceil(bars.length / TARGET_TICKS))
+  const ticks: { index: number; label: string }[] = []
+  for (let index = 0; index < bars.length; index += tickStep) {
+    ticks.push({
+      index,
+      label: fmtBarTime(bars[index]!.candle.timestamp, intraday),
+    })
+  }
+  // Always show the newest bar's time — the reader's first question is "as of when?".
+  const lastIndex = bars.length - 1
+  const lastLabel = fmtBarTime(bars[lastIndex]!.candle.timestamp, intraday)
+  const lastTick = ticks[ticks.length - 1]
+  if (!lastTick || lastTick.index !== lastIndex) {
+    if (lastTick && lastIndex - lastTick.index < tickStep / 2) {
+      ticks[ticks.length - 1] = { index: lastIndex, label: lastLabel }
+    } else {
+      ticks.push({ index: lastIndex, label: lastLabel })
+    }
+  }
+
+  const barSize = intervalLabel(interval ?? series?.interval)
+
   return (
-    <div className="chart-wrap">
+    <div className={`chart-wrap${compact ? ' chart-wrap-compact' : ''}`}>
       <svg
         className="chart"
-        viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
+        viewBox={`0 0 ${WIDTH} ${height}`}
         preserveAspectRatio="xMidYMid meet"
         role="img"
-        aria-label={`Price history and forecast for ${series?.symbol ?? 'symbol'}`}
+        aria-label={`Price history and ${barSize || ''} forecast for ${series?.symbol ?? 'symbol'}`.trim()}
       >
         {gridLines.map((price) => (
           <g key={price}>
@@ -164,21 +211,17 @@ export function ForecastChart({ series, forecast }: Props) {
           />
         )}
 
-        {history.length > 0 && (
-          <text x={PAD.left + 4} y={HEIGHT - 8} className="axis-label">
-            {fmtDate(history[0]!.timestamp)}
+        {ticks.map(({ index, label }) => (
+          <text
+            key={`t-${index}`}
+            x={x(index)}
+            y={height - 8}
+            className={`axis-label${index === lastIndex ? ' anchor-end' : ''}`}
+            textAnchor={index === 0 ? 'start' : index === lastIndex ? 'end' : 'middle'}
+          >
+            {label}
           </text>
-        )}
-        {boundaryX != null && (
-          <text x={boundaryX + 4} y={HEIGHT - 8} className="axis-label">
-            last actual {fmtDate(history[history.length - 1]?.timestamp)}
-          </text>
-        )}
-        {bars.length > 0 && (
-          <text x={WIDTH - PAD.right - 4} y={HEIGHT - 8} className="axis-label anchor-end">
-            {fmtDate(bars[bars.length - 1]!.candle.timestamp)}
-          </text>
-        )}
+        ))}
       </svg>
 
       <div className="chart-meta">
@@ -187,11 +230,19 @@ export function ForecastChart({ series, forecast }: Props) {
         </span>
         <span className="legend">
           <i className="swatch" style={{ background: FORECAST_UP }} /> Kronos forecast
-          {forecast ? ` (${forecast.horizon} bars)` : ''}
+          {forecast ? ` (${forecast.horizon} × ${barSize || 'bars'})` : ''}
         </span>
+        {barSize && <span className="legend mono">{barSize} bars</span>}
         {finalForecast != null && (
           <span className={`legend mono ${signClass(expectedReturn)}`}>
             target {fmtPrice(finalForecast)} · {fmtFractionPct(expectedReturn)}
+          </span>
+        )}
+        {history.length > 0 && (
+          <span className="legend muted tiny" title="Last actual bar of this series">
+            <time dateTime={history[history.length - 1]!.timestamp}>
+              as of {fmtBarDateTime(history[history.length - 1]!.timestamp)}
+            </time>
           </span>
         )}
       </div>

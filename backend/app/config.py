@@ -206,18 +206,63 @@ MODEL_REGISTRY: dict[str, ModelSpec] = {
     ),
 }
 
-#: Intervals we allow. Free ``yfinance`` intraday history is capped (7 days at 5m, 60 days at
-#: 1h), which is far shorter than a useful Kronos context, so daily bars are the default and
-#: intraday is explicitly a best-effort convenience — see ``doc/objective.md`` non-goals.
+#: Intervals we allow, mapped to the maximum history period ``yfinance`` returns for each.
+#: Free intraday history is capped (7 days at 1m, 60 days at 5m/15m/30m/1h), which is far
+#: shorter than a daily-bar Kronos context, so daily bars stay the default and intraday is a
+#: best-effort convenience — see ``doc/objective.md`` non-goals.
+#:
+#: The interval is also what the *forecast* runs on: selecting 5m means 5-minute candles in the
+#: chart and a PRED_LEN horizon of 5-minute bars. ``3m`` is deliberately absent — ``yfinance``
+#: does not offer it and we do not synthesise bars we cannot source.
 ALLOWED_INTERVALS: dict[str, str] = {
-    "1d": "5y",
+    "1m": "7d",
+    "5m": "60d",
+    "15m": "60d",
+    "30m": "60d",
     "1h": "60d",
+    "1d": "5y",
     "1wk": "10y",
 }
 
-#: Cache lifetimes in minutes, per interval. Daily bars only change once a day, so a long TTL
-#: is safe and keeps us well inside ``yfinance``'s rate limits.
-CACHE_TTL_MINUTES: dict[str, int] = {"1d": 360, "1wk": 1440, "1h": 30}
+
+def period_for_interval(interval: str) -> str:
+    """History period to request from ``yfinance`` for ``interval``.
+
+    Raises ``ValueError`` for an unsupported interval, so a bad request fails loudly rather
+    than silently downloading daily bars for a 1m chart.
+    """
+    try:
+        return ALLOWED_INTERVALS[interval]
+    except KeyError:
+        raise ValueError(
+            f"INTERVAL must be one of {sorted(ALLOWED_INTERVALS)}, got {interval!r}"
+        ) from None
+
+
+#: Intervals finer than one day, for context-size validation: intraday history is capped, so
+#: a 400-bar lookback cannot always be satisfied.
+INTRADAY_INTERVALS: frozenset[str] = frozenset({"1m", "5m", "15m", "30m", "1h"})
+
+#: Largest Kronos context allowed on intraday bars. Free 1m history spans 7 days — about 7k
+#: bars for a 24/7 market but far fewer for session-traded ones — and 60m history spans 60
+#: days, so anything near the 512 context risks asking for bars that do not exist. 240 bars
+#: keeps every intraday interval comfortably inside its cap while staying above the 64-bar
+#: minimum the forecast service requires.
+INTRADAY_MAX_LOOKBACK = 240
+
+
+#: Cache lifetimes in minutes, per interval. A 1m bar stops being current within a minute while
+#: daily bars only change once a day, so the TTL follows the bar size — reusing the daily TTL
+#: for intraday bars would serve hours-old prices as current.
+CACHE_TTL_MINUTES: dict[str, int] = {
+    "1m": 1,
+    "5m": 5,
+    "15m": 10,
+    "30m": 15,
+    "1h": 30,
+    "1d": 360,
+    "1wk": 1440,
+}
 
 
 # --------------------------------------------------------------------------------------
@@ -285,6 +330,16 @@ class Settings:
         if self.interval not in ALLOWED_INTERVALS:
             raise ValueError(
                 f"INTERVAL must be one of {sorted(ALLOWED_INTERVALS)}, got {self.interval!r}"
+            )
+        # 400 daily bars ≈ 19 months of context; on 1m bars the same number needs more history
+        # than yfinance returns (7d ≈ 1,980 bars at 24/7, but ~2.3k for a 400-bar lookback is
+        # fine) while on 1wk bars it would exceed most listings' lifetime. Keep intraday
+        # contexts small enough that the capped history actually covers them.
+        if self.interval in INTRADAY_INTERVALS and self.lookback > INTRADAY_MAX_LOOKBACK:
+            raise ValueError(
+                f"LOOKBACK={self.lookback} exceeds the {INTRADAY_MAX_LOOKBACK}-bar context used "
+                f"for intraday intervals on {self.interval!r} (free intraday history is capped). "
+                "Lower LOOKBACK for intraday runs."
             )
         if self.kronos_model not in MODEL_REGISTRY:
             raise ValueError(

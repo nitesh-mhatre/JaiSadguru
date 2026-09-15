@@ -19,7 +19,12 @@ export interface PollingState<T> {
  * The fetcher is held in a ref so callers can pass an inline arrow function without restarting
  * the interval on every render.
  */
-export function usePolling<T>(fetcher: () => Promise<T>, intervalMs: number): PollingState<T> {
+export function usePolling<T>(
+  fetcher: () => Promise<T>,
+  intervalMs: number,
+  /** Re-fetch immediately whenever this value changes (e.g. the selected chart interval). */
+  watchKey?: string,
+): PollingState<T> {
   const fetcherRef = useRef(fetcher)
   fetcherRef.current = fetcher
 
@@ -60,6 +65,14 @@ export function usePolling<T>(fetcher: () => Promise<T>, intervalMs: number): Po
       window.clearInterval(timer)
     }
   }, [refresh, intervalMs])
+
+  // Skip the mount (the effect above already fetched) and fire only on real changes.
+  const watchedRef = useRef(watchKey)
+  useEffect(() => {
+    if (watchedRef.current === watchKey) return
+    watchedRef.current = watchKey
+    void refresh()
+  }, [watchKey, refresh])
 
   return { data, error, loading, refreshing, lastUpdated, refresh }
 }

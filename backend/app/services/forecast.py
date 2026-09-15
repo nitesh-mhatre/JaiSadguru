@@ -22,7 +22,7 @@ from typing import Any
 
 import pandas as pd
 
-from ..config import Settings
+from ..config import ALLOWED_INTERVALS, INTRADAY_INTERVALS, INTRADAY_MAX_LOOKBACK, Settings
 from ..config import settings as default_settings
 from .market_data import MarketDataResult, MarketDataService, future_timestamps, market_data
 
@@ -254,19 +254,39 @@ class ForecastService:
         symbol: str,
         *,
         refresh: bool = False,
+        interval: str | None = None,
         lookback: int | None = None,
         pred_len: int | None = None,
         sample_count: int | None = None,
         temperature: float | None = None,
         top_p: float | None = None,
     ) -> ForecastOutcome:
-        """Forecast ``symbol``. Raises :class:`ForecastError` — never returns a partial result."""
+        """Forecast ``symbol``. Raises :class:`ForecastError` — never returns a partial result.
+
+        ``interval`` selects the bar size the forecast runs on: ``"5m"`` feeds the model
+        5-minute candles and returns a horizon of 5-minute bars. ``None`` uses the configured
+        default (daily).
+        """
         settings = self.settings
         lookback = lookback or settings.lookback
         horizon = pred_len or settings.pred_len
         samples = sample_count or settings.sample_count
+        interval = interval or settings.interval
 
-        data = self.data.fetch(symbol, refresh=refresh)
+        if interval not in ALLOWED_INTERVALS:
+            raise ForecastError(
+                symbol, f"unsupported interval {interval!r} (allowed: {sorted(ALLOWED_INTERVALS)})"
+            )
+        # Intraday history is capped by the data provider, so intraday contexts must stay small
+        # enough to actually be satisfiable (see ``INTRADAY_MAX_LOOKBACK`` in config).
+        if interval in INTRADAY_INTERVALS and lookback > INTRADAY_MAX_LOOKBACK:
+            raise ForecastError(
+                symbol,
+                f"lookback {lookback} exceeds the {INTRADAY_MAX_LOOKBACK}-bar context allowed "
+                f"for intraday interval {interval!r}",
+            )
+
+        data = self.data.fetch(symbol, interval=interval, refresh=refresh)
         x_df, x_timestamp, y_timestamp, notes = self._prepare_inputs(data, lookback, horizon)
 
         predictor = self.runtime.ensure_loaded()
@@ -313,7 +333,7 @@ class ForecastService:
             symbol=data.symbol,
             name=data.name,
             asset_class=data.asset_class,
-            interval=data.interval,
+            interval=interval,
             model=settings.kronos_model,
             horizon=horizon,
             sample_count=samples,

@@ -5,20 +5,30 @@ import { fmtMoney, fmtPct } from './format'
 import { usePolling } from './hooks/usePolling'
 import { Controls, RunsStrip, type BusyAction } from './components/Controls'
 import { ForecastChart } from './components/ForecastChart'
+import { IntervalPicker } from './components/IntervalPicker'
 import { MarketTable } from './components/MarketTable'
 import { PortfolioPanel } from './components/PortfolioPanel'
 import { SignalPanel } from './components/SignalPanel'
 import { SymbolSearch } from './components/SymbolSearch'
 import { TradeLog } from './components/TradeLog'
-import type { ForecastBundle } from './types'
+import type { ForecastBundle, Interval } from './types'
 
 /** How often the dashboard re-reads the backend. A cycle itself takes far longer than this. */
 const POLL_MS = 20_000
 
 export default function App() {
+  /**
+   * Bar size for the chart and the forecasts: 1m … 1wk. Choosing 5m charts 5-minute candles
+   * and makes the next forecast run on 5-minute bars, so the prediction horizon is denominated
+   * in the unit the user picked. Persisted in the URL-free UI state only — daily stays the
+   * supported default per the project's non-goals on intraday data.
+   */
+  const [interval, setInterval] = useState<Interval>('1d')
   const { data, error, loading, refreshing, lastUpdated, refresh } = usePolling(
-    loadDashboard,
+    () => loadDashboard(interval),
     POLL_MS,
+    // Re-fetch immediately when the bar size changes instead of waiting for the next poll.
+    interval,
   )
 
   const [selected, setSelected] = useState<string | null>(null)
@@ -85,14 +95,21 @@ export default function App() {
   const handleForecast = useCallback(() => {
     if (!activeSymbol) return Promise.resolve()
     return runAction('forecast', async () => {
-      const bundle = await api.forecastSymbol(activeSymbol)
+      // The forecast runs on the selected bar size: 5m selected → 5-minute prediction bars.
+      const bundle = await api.forecastSymbol(activeSymbol, false, interval)
       setFreshForecast(bundle)
       await refresh()
       return `${activeSymbol}: ${bundle.signal.action} · score ${bundle.signal.score.toFixed(
         2,
       )} · confidence ${fmtPct(bundle.signal.confidence * 100, 0)}`
     })
-  }, [activeSymbol, runAction, refresh])
+  }, [activeSymbol, runAction, refresh, interval])
+
+  /** Switching the bar size invalidates the fresh overlay from the previous one. */
+  const handleInterval = useCallback((next: Interval) => {
+    setInterval(next)
+    setFreshForecast(null)
+  }, [])
 
   const handleAdded = useCallback(
     (symbol: string) => {
@@ -178,7 +195,20 @@ export default function App() {
             <h2>Forecast — {activeSymbol ?? '—'}</h2>
             {series?.stale && <span className="tiny warn-text">prices may be stale</span>}
           </div>
-          <ForecastChart series={series} forecast={forecast} />
+          <div className="chart-controls">
+            <IntervalPicker value={interval} onChange={handleInterval} disabled={busy !== null} />
+            <span className="tiny muted interval-hint">
+              {interval === '1d' || interval === '1wk'
+                ? 'daily-scale bars'
+                : `${interval} candles · forecasts run on ${interval} bars`}
+            </span>
+          </div>
+          <ForecastChart
+            series={series}
+            forecast={forecast}
+            interval={interval}
+            compact={false}
+          />
         </section>
 
         <section className="card">
@@ -192,6 +222,7 @@ export default function App() {
             config={data?.config ?? null}
             busy={busy === 'forecast'}
             onRunForecast={() => void handleForecast()}
+            interval={interval}
           />
         </section>
       </div>

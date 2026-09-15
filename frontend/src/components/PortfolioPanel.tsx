@@ -121,49 +121,51 @@ export function PortfolioPanel({ portfolio, config }: Props) {
           confidence is high enough.
         </div>
       ) : (
-        <table className="table compact">
-          <thead>
-            <tr>
-              <th>Symbol</th>
-              <th className="num">Qty</th>
-              <th className="num">Avg cost</th>
-              <th className="num">Mark</th>
-              <th className="num">Value</th>
-              <th className="num">P&amp;L</th>
-              <th className="num">Stop</th>
-              <th className="num">Target</th>
-            </tr>
-          </thead>
-          <tbody>
-            {portfolio.positions.map((position) => (
-              <tr key={position.symbol}>
-                <td className="mono">{position.symbol}</td>
-                <td className="num mono">{fmtQty(position.qty)}</td>
-                <td className="num mono">{fmtPrice(position.avg_price)}</td>
-                <td className="num mono">
-                  {position.priced ? (
-                    fmtPrice(position.last_price)
-                  ) : (
-                    <span className="muted" title="No mark price observed; valued at cost basis">
-                      n/a
-                    </span>
-                  )}
-                </td>
-                <td className="num mono">{fmtMoney(position.market_value)}</td>
-                <td className={`num mono ${signClass(position.unrealized_pnl)}`}>
-                  {fmtMoney(position.unrealized_pnl)}
-                  <span className="tiny"> ({fmtPct(position.unrealized_pnl_pct)})</span>
-                </td>
-                <td className="num mono muted">
-                  {position.stop_price != null ? fmtPrice(position.stop_price) : '—'}
-                </td>
-                <td className="num mono muted">
-                  {position.take_profit_price != null ? fmtPrice(position.take_profit_price) : '—'}
-                </td>
+        <div className="table-scroll">
+          <table className="table compact">
+            <thead>
+              <tr>
+                <th>Symbol</th>
+                <th className="num">Qty</th>
+                <th className="num">Avg cost</th>
+                <th className="num">Mark</th>
+                <th className="num col-hide-mobile col-hide-narrow">Value</th>
+                <th className="num">P&amp;L</th>
+                <th className="num col-hide-mobile">Stop</th>
+                <th className="num col-hide-mobile">Target</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {portfolio.positions.map((position) => (
+                <tr key={position.symbol}>
+                  <td className="mono">{position.symbol}</td>
+                  <td className="num mono">{fmtQty(position.qty)}</td>
+                  <td className="num mono">{fmtPrice(position.avg_price)}</td>
+                  <td className="num mono">
+                    {position.priced ? (
+                      fmtPrice(position.last_price)
+                    ) : (
+                      <span className="muted" title="No mark price observed; valued at cost basis">
+                        n/a
+                      </span>
+                    )}
+                  </td>
+                  <td className="num mono col-hide-mobile col-hide-narrow">{fmtMoney(position.market_value)}</td>
+                  <td className={`num mono ${signClass(position.unrealized_pnl)}`}>
+                    {fmtMoney(position.unrealized_pnl)}
+                    <span className="tiny"> ({fmtPct(position.unrealized_pnl_pct)})</span>
+                  </td>
+                  <td className="num mono muted col-hide-mobile">
+                    {position.stop_price != null ? fmtPrice(position.stop_price) : '—'}
+                  </td>
+                  <td className="num mono muted col-hide-mobile">
+                    {position.take_profit_price != null ? fmtPrice(position.take_profit_price) : '—'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
 
       {config && (

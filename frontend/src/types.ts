@@ -8,6 +8,9 @@
 export type Action = 'BUY' | 'SELL' | 'HOLD'
 export type RunStatus = 'running' | 'ok' | 'degraded' | 'failed'
 
+/** Bar sizes the backend serves. Mirrors ALLOWED_INTERVALS in `backend/app/config.py`. */
+export type Interval = '1m' | '5m' | '15m' | '30m' | '1h' | '1d' | '1wk'
+
 export interface AssetInfo {
   symbol: string
   name: string
@@ -257,6 +260,14 @@ export interface HealthResponse {
 export interface ForecastBundle {
   forecast: ForecastResponse
   signal: SignalResponse
+}
+
+/** Display metadata for one selectable chart interval. */
+export interface IntervalOption {
+  value: Interval
+  label: string
+  /** Chart time-axis labels switch to clock time on intraday bars. */
+  intraday: boolean
 }
 
 export interface MessageResponse {

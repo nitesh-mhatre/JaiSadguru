@@ -22,7 +22,7 @@ export function TradeLog({ trades }: Props) {
   }
 
   return (
-    <div className="scroll-y">
+    <div className="scroll-y table-scroll">
       <table className="table compact">
         <thead>
           <tr>
@@ -31,8 +31,8 @@ export function TradeLog({ trades }: Props) {
             <th>Side</th>
             <th className="num">Qty</th>
             <th className="num">Fill</th>
-            <th className="num">Fee</th>
-            <th className="num">Realised</th>
+            <th className="num col-hide-mobile col-hide-narrow">Fee</th>
+            <th className="num col-hide-mobile">Realised</th>
             <th>Reason</th>
           </tr>
         </thead>
@@ -46,8 +46,8 @@ export function TradeLog({ trades }: Props) {
               </td>
               <td className="num mono">{fmtQty(trade.qty)}</td>
               <td className="num mono">{fmtPrice(trade.price)}</td>
-              <td className="num mono muted">{fmtMoney(trade.fee)}</td>
-              <td className={`num mono ${trade.realized_pnl == null ? 'muted' : signClass(trade.realized_pnl)}`}>
+              <td className="num mono muted col-hide-mobile col-hide-narrow">{fmtMoney(trade.fee)}</td>
+              <td className={`num mono col-hide-mobile ${trade.realized_pnl == null ? 'muted' : signClass(trade.realized_pnl)}`}>
                 {trade.realized_pnl == null ? '—' : fmtMoney(trade.realized_pnl)}
               </td>
               <td className="muted tiny reason">{trade.reason}</td>

@@ -639,6 +639,72 @@ body {
   display: inline-block;
 }
 
+/* ---------------------------------------------------------------- interval picker */
+
+.chart-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.interval-hint {
+  min-width: 0;
+}
+
+.interval-picker {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-raised);
+  padding: 2px;
+  gap: 2px;
+  overflow-x: auto;
+  max-width: 100%;
+  -webkit-overflow-scrolling: touch;
+}
+
+.interval-btn {
+  font: inherit;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  padding: 5px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.interval-btn:hover:not(:disabled) {
+  color: var(--text);
+  background: #1e2431;
+}
+
+.interval-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.interval-btn-active,
+.interval-btn-active:hover:not(:disabled) {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+.interval-picker-compact .interval-btn {
+  padding: 7px 11px;
+}
+
+.chart-wrap-compact .chart-meta {
+  gap: 10px;
+  font-size: 11px;
+}
+
 /* ---------------------------------------------------------------- signal */
 
 .signal {
@@ -767,4 +833,153 @@ body {
 .footnote {
   margin: 12px 0 0;
   line-height: 1.6;
+}
+
+/* ---------------------------------------------------------------- mobile */
+
+/* Phones and small tablets: single column, horizontally scrollable tables with the least
+   actionable columns hidden, tap-sized controls, and a compact header. The tables keep their
+   data — scrolling sideways on one axis beats cramping eight columns into 390px. */
+@media (max-width: 760px) {
+  html {
+    /* Prevent iOS from zooming the whole page when a control gets focus. */
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
+  .app {
+    padding: 12px 10px 36px;
+    gap: 12px;
+  }
+
+  .grid-2 {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  .card {
+    padding: 12px 10px 14px;
+  }
+
+  /* Header: stack brand above actions, let the buttons wrap into a second row. */
+  .header-top {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .brand h1 {
+    font-size: 18px;
+  }
+
+  .actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .actions .btn {
+    padding: 11px 12px;
+    font-size: 13.5px;
+    white-space: normal;
+    text-align: center;
+  }
+
+  /* Tap targets ≥44px on the interval picker. */
+  .interval-btn {
+    padding: 11px 12px;
+    font-size: 13px;
+  }
+
+  /* Status strip: allow items to flow onto several lines. */
+  .status-strip {
+    gap: 6px 10px;
+    padding: 8px 10px;
+  }
+
+  .runs-strip {
+    gap: 6px;
+  }
+
+  /* Tables scroll on their own axis instead of squeezing the page. */
+  .table-scroll {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Drop low-value columns on phones: name, score, signal age. Kept: symbol, last, change,
+     signal, confidence. */
+  .col-hide-mobile {
+    display: none;
+  }
+
+  .table td,
+  .table th {
+    padding: 9px 8px;
+  }
+
+  .reason {
+    max-width: 160px;
+  }
+
+  .stat-row {
+    gap: 8px;
+  }
+
+  .stat {
+    flex: 1 1 44%;
+    padding: 8px 10px;
+  }
+
+  .stat-value {
+    font-size: 15.5px;
+  }
+
+  .component-label {
+    width: 84px;
+    font-size: 11.5px;
+  }
+
+  .kv {
+    grid-template-columns: minmax(0, 110px) minmax(0, 1fr);
+    font-size: 12px;
+  }
+
+  .search-results {
+    max-height: 220px;
+  }
+
+  .scroll-y {
+    max-height: 280px;
+  }
+
+  .footer {
+    font-size: 11.5px;
+  }
+}
+
+/* Very narrow phones: hide the confidence column too; the badge still carries the call. */
+@media (max-width: 420px) {
+  .col-hide-narrow {
+    display: none;
+  }
+
+  .actions {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Touch surfaces generally: slightly larger hit areas without changing desktop layout. */
+@media (hover: none) and (pointer: coarse) {
+  .btn-sm {
+    padding: 9px 13px;
+  }
+
+  .row-remove {
+    padding: 8px 12px;
+  }
+
+  .search-input {
+    font-size: 16px; /* stops iOS Safari auto-zoom on focus */
+  }
 }

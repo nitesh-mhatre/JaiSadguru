@@ -1,5 +1,12 @@
 import type { ConfigResponse, SignalResponse, SignalRationale } from '../types'
-import { fmtFractionPct, fmtMoney, fmtPrice, fmtRelative, signClass } from '../format'
+import {
+  fmtFractionPct,
+  fmtMoney,
+  fmtPrice,
+  fmtRelative,
+  intervalLabel,
+  signClass,
+} from '../format'
 import { ActionBadge, ConfidenceBar } from './Badge'
 
 interface Props {
@@ -8,6 +15,8 @@ interface Props {
   config: ConfigResponse | null
   busy: boolean
   onRunForecast: () => void
+  /** Selected chart bar size, so the horizon can be shown in time units, not bare bars. */
+  interval?: string
 }
 
 const COMPONENT_HELP: Record<string, string> = {
@@ -45,7 +54,7 @@ function ComponentBars({ rationale }: { rationale: SignalRationale }) {
  * Everything the engine used is shown, including the parts that argue against the action. A
  * dashboard that only surfaced the verdict would make the signal impossible to judge.
  */
-export function SignalPanel({ signal, symbol, config, busy, onRunForecast }: Props) {
+export function SignalPanel({ signal, symbol, config, busy, onRunForecast, interval }: Props) {
   if (!symbol) {
     return <div className="empty">Select a symbol to see its forecast and signal.</div>
   }
@@ -73,7 +82,8 @@ export function SignalPanel({ signal, symbol, config, busy, onRunForecast }: Pro
             {signal.symbol} <ActionBadge action={signal.action} />
           </h3>
           <p className="muted tiny">
-            {signal.horizon}-bar horizon · evaluated {fmtRelative(new Date(signal.created_at))}
+            {intervalLabel(interval ?? signal.rationale.model?.interval)} bars ahead ·{' '}
+            evaluated {fmtRelative(new Date(signal.created_at))}
           </p>
         </div>
         <button className="btn btn-ghost btn-sm" onClick={onRunForecast} disabled={busy}>
@@ -114,7 +124,7 @@ export function SignalPanel({ signal, symbol, config, busy, onRunForecast }: Pro
           <>
             <dt>Realised volatility</dt>
             <dd className="mono">
-              {volatility.daily_pct.toFixed(2)}%/day · {volatility.horizon_pct.toFixed(2)}% over{' '}
+              {volatility.daily_pct.toFixed(2)}%/bar · {volatility.horizon_pct.toFixed(2)}% over{' '}
               {rationale.horizon_bars} bars
             </dd>
             <dt>Volatility source</dt>
