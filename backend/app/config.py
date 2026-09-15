@@ -84,24 +84,55 @@ class Asset:
 
     symbol: str
     name: str
-    asset_class: str  # "index" | "commodity" | "custom"
+    asset_class: str  # "index" | "stock" | "commodity" | "crypto" | "custom"
 
 
-#: Nice display names for the symbols we ship with. Overriding ``WATCHLIST`` in the
-#: environment is fine — unknown symbols simply fall back to their ticker as the name.
+#: Nice display names for well-known symbols, so the dashboard shows "Bitcoin" rather than
+#: "BTC-USD". Overriding ``WATCHLIST`` in the environment is fine — unknown symbols simply
+#: fall back to their ticker as the name, and symbols added through the search API are
+#: stored with the name the search returned.
 KNOWN_ASSETS: dict[str, Asset] = {
     "^GSPC": Asset("^GSPC", "S&P 500", "index"),
     "^NDX": Asset("^NDX", "Nasdaq 100", "index"),
     "^DJI": Asset("^DJI", "Dow Jones Industrial Average", "index"),
     "GC=F": Asset("GC=F", "Gold Futures", "commodity"),
     "SI=F": Asset("SI=F", "Silver Futures", "commodity"),
+    # Crypto (quote currency USD via yfinance's -USD suffix)
+    "BTC-USD": Asset("BTC-USD", "Bitcoin", "crypto"),
+    "ETH-USD": Asset("ETH-USD", "Ethereum", "crypto"),
+    # India — NSE via yfinance's .NS suffix, indices via ^-prefixed tickers
+    "^NSEI": Asset("^NSEI", "Nifty 50", "index"),
+    "^BSESN": Asset("^BSESN", "Sensex", "index"),
+    "RELIANCE.NS": Asset("RELIANCE.NS", "Reliance Industries", "stock"),
+    "TCS.NS": Asset("TCS.NS", "Tata Consultancy Services", "stock"),
+    "HDFCBANK.NS": Asset("HDFCBANK.NS", "HDFC Bank", "stock"),
 }
 
-#: Default targets: index stocks, gold and silver (see ``doc/objective.md`` target T1).
-DEFAULT_WATCHLIST: tuple[str, ...] = ("^GSPC", "^NDX", "^DJI", "GC=F", "SI=F")
+#: Default targets: US indices, gold and silver, crypto and Indian large-caps (see
+#: ``doc/objective.md`` target T1). Crypto trades 24/7 and NSE/BSE have their own sessions,
+#: which the timestamp layer handles per asset class.
+DEFAULT_WATCHLIST: tuple[str, ...] = (
+    "^GSPC",
+    "^NDX",
+    "^DJI",
+    "GC=F",
+    "SI=F",
+    "BTC-USD",
+    "ETH-USD",
+    "^NSEI",
+    "RELIANCE.NS",
+    "TCS.NS",
+)
 
 
 def _parse_watchlist() -> tuple[Asset, ...]:
+    """Resolve the configured watchlist into display :class:`Asset` objects.
+
+    Symbols are uppercased except for the ``-USD`` crypto suffix and ``.NS``/``.BO`` exchange
+    suffixes, which contain no case-sensitive content beyond what uppercasing already
+    preserves — ``yfinance`` accepts both cases for these tickers, but the canonical form
+    used everywhere in this codebase is upper case.
+    """
     raw = _env("WATCHLIST", ",".join(DEFAULT_WATCHLIST))
     assets: list[Asset] = []
     seen: set[str] = set()
@@ -112,6 +143,26 @@ def _parse_watchlist() -> tuple[Asset, ...]:
         seen.add(symbol)
         assets.append(KNOWN_ASSETS.get(symbol, Asset(symbol, symbol, "custom")))
     return tuple(assets)
+
+
+def classify_symbol(symbol: str) -> str:
+    """Infer the asset class from the ticker's shape.
+
+    Used by the search API and the watchlist service for symbols that are not in
+    :data:`KNOWN_ASSETS`. The patterns cover the ``yfinance`` conventions we care about:
+    crypto pairs end in ``-USD``, Indian equities carry an ``.NS``/``.BO`` exchange suffix,
+    and ``^``-prefixed tickers are indices.
+    """
+    symbol = symbol.strip().upper()
+    if "-USD" in symbol:
+        return "crypto"
+    if symbol.endswith((".NS", ".BO")):
+        return "stock"
+    if symbol.startswith("^"):
+        return "index"
+    if symbol.endswith("=F"):
+        return "commodity"
+    return "stock"
 
 
 # --------------------------------------------------------------------------------------
@@ -174,6 +225,16 @@ CACHE_TTL_MINUTES: dict[str, int] = {"1d": 360, "1wk": 1440, "1h": 30}
 # --------------------------------------------------------------------------------------
 
 
+def _parse_search_cache_ttl() -> int:
+    """Search-result cache lifetime in minutes, bounded to something sane."""
+    return max(1, _env_int("SEARCH_CACHE_TTL_MINUTES", 1_440))
+
+
+def _parse_max_watchlist() -> int:
+    """Hard cap on watchlist size, bounded so a cycle stays inside yfinance rate limits."""
+    return max(3, _env_int("MAX_WATCHLIST", 25))
+
+
 @dataclass(frozen=True)
 class Settings:
     """Resolved application settings."""
@@ -182,6 +243,10 @@ class Settings:
     interval: str = "1d"
     lookback: int = 400
     cache_enabled: bool = True
+
+    # ---- search and watchlist ----
+    search_cache_ttl_minutes: int = 1_440
+    max_watchlist: int = 25
 
     # ---- forecast ----
     kronos_model: str = "kronos-small"
@@ -294,6 +359,8 @@ def load_settings() -> Settings:
         take_profit_pct=_env_float("TAKE_PROFIT_PCT", 0.10),
         commission_bps=_env_float("COMMISSION_BPS", 1.0),
         slippage_bps=_env_float("SLIPPAGE_BPS", 2.0),
+        search_cache_ttl_minutes=_parse_search_cache_ttl(),
+        max_watchlist=_parse_max_watchlist(),
         db_path=Path(_env("DB_PATH", str(DB_PATH))).expanduser(),
         cache_dir=Path(_env("CACHE_DIR", str(CACHE_DIR))).expanduser(),
         cors_origins=tuple(o.strip() for o in origins_raw.split(",") if o.strip()),

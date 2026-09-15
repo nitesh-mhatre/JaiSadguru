@@ -238,7 +238,7 @@ class ForecastService:
         # ``calc_time_stamps`` inside Kronos uses the pandas ``.dt`` accessor, so this must be a
         # Series rather than a DatetimeIndex or a plain list.
         x_timestamp = pd.Series(frame.index, name="timestamps")
-        y_index = future_timestamps(frame.index, horizon, result.interval)
+        y_index = future_timestamps(frame.index, horizon, result.interval, result.asset_class)
         if len(y_index) != horizon:
             raise ForecastError(
                 result.symbol, f"could not build {horizon} future timestamps for {result.interval!r}"

@@ -25,7 +25,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS runs (
@@ -122,6 +122,20 @@ CREATE TABLE IF NOT EXISTS snapshots (
     open_positions  INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_snapshots_created ON snapshots(created_at DESC);
+
+CREATE TABLE IF NOT EXISTS watchlist (
+    symbol      TEXT PRIMARY KEY,
+    name        TEXT NOT NULL,
+    asset_class TEXT NOT NULL,
+    added_at    TEXT NOT NULL,
+    source      TEXT NOT NULL DEFAULT 'seed'
+);
+
+CREATE TABLE IF NOT EXISTS search_cache (
+    query      TEXT PRIMARY KEY,
+    results_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
 """
 
 
@@ -582,9 +596,98 @@ class Store:
                 (initial_capital, initial_capital, now, now),
             )
 
+    # ------------------------------------------------------------------ watchlist
+
+    def seed_watchlist(self, assets: list[dict[str, str]]) -> None:
+        """Insert default assets that are not already present, keeping existing rows.
+
+        Seeding never removes anything: a symbol the user added through the search API must
+        survive a restart, and so must a symbol the user removed from the defaults.
+        """
+        now = utcnow()
+        with self.connect() as conn:
+            for asset in assets:
+                conn.execute(
+                    """
+                    INSERT INTO watchlist (symbol, name, asset_class, added_at, source)
+                    VALUES (?, ?, ?, ?, 'seed')
+                    ON CONFLICT(symbol) DO NOTHING
+                    """,
+                    (asset["symbol"], asset["name"], asset["asset_class"], now),
+                )
+
+    def get_watchlist(self) -> list[dict[str, Any]]:
+        """Tracked symbols in insertion order, so the dashboard is stable between reloads."""
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT symbol, name, asset_class, added_at, source FROM watchlist ORDER BY rowid"
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def watchlist_symbols(self) -> list[str]:
+        with self.connect() as conn:
+            rows = conn.execute("SELECT symbol FROM watchlist ORDER BY rowid").fetchall()
+        return [str(r["symbol"]) for r in rows]
+
+    def add_watchlist_entry(self, symbol: str, name: str, asset_class: str, source: str) -> bool:
+        """Track a new symbol. Returns ``False`` if it was already present."""
+        symbol = symbol.upper()
+        with self.connect() as conn:
+            cur = conn.execute(
+                """
+                INSERT INTO watchlist (symbol, name, asset_class, added_at, source)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(symbol) DO NOTHING
+                """,
+                (symbol, name, asset_class, utcnow(), source),
+            )
+            return cur.rowcount > 0
+
+    def remove_watchlist_entry(self, symbol: str) -> bool:
+        """Stop tracking a symbol. Returns ``False`` if it was not tracked."""
+        with self.connect() as conn:
+            cur = conn.execute("DELETE FROM watchlist WHERE symbol = ?", (symbol.upper(),))
+            return cur.rowcount > 0
+
+    # ------------------------------------------------------------------ search cache
+
+    def get_search_cache(self, query: str, max_age_minutes: int) -> list[dict[str, Any]] | None:
+        """Cached results for a query, or ``None`` when absent or older than the TTL."""
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT results_json, created_at FROM search_cache WHERE query = ?", (query.lower(),)
+            ).fetchone()
+        if row is None:
+            return None
+        try:
+            created = datetime.fromisoformat(str(row["created_at"]))
+        except ValueError:
+            return None
+        age_minutes = (datetime.now(timezone.utc) - created).total_seconds() / 60.0
+        if age_minutes > max_age_minutes:
+            return None
+        try:
+            return json.loads(str(row["results_json"]))
+        except (TypeError, ValueError):
+            return None
+
+    def put_search_cache(self, query: str, results: list[dict[str, Any]]) -> None:
+        query = query.lower()
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO search_cache (query, results_json, created_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(query) DO UPDATE SET
+                    results_json = excluded.results_json,
+                    created_at   = excluded.created_at
+                """,
+                (query, _dumps(results), utcnow()),
+            )
+
     def stats(self) -> dict[str, int]:
         """Row counts per table — handy for the health endpoint and manual inspection."""
-        tables = ("runs", "forecasts", "signals", "positions", "trades", "snapshots")
+        tables = ("runs", "forecasts", "signals", "positions", "trades", "snapshots", "watchlist")
         with self.connect() as conn:
             return {
                 table: int(conn.execute(f"SELECT COUNT(*) AS n FROM {table}").fetchone()["n"])

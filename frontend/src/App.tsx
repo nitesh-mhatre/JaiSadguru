@@ -8,6 +8,7 @@ import { ForecastChart } from './components/ForecastChart'
 import { MarketTable } from './components/MarketTable'
 import { PortfolioPanel } from './components/PortfolioPanel'
 import { SignalPanel } from './components/SignalPanel'
+import { SymbolSearch } from './components/SymbolSearch'
 import { TradeLog } from './components/TradeLog'
 import type { ForecastBundle } from './types'
 
@@ -93,6 +94,25 @@ export default function App() {
     })
   }, [activeSymbol, runAction, refresh])
 
+  const handleAdded = useCallback(
+    (symbol: string) => {
+      setSelected(symbol)
+      void refresh()
+    },
+    [refresh],
+  )
+
+  const handleRemove = useCallback(
+    (symbol: string) =>
+      runAction('remove', async () => {
+        const message = await api.removeWatchlistEntry(symbol)
+        if (activeSymbol === symbol) setSelected(null)
+        await refresh()
+        return message.message
+      }),
+    [runAction, refresh, activeSymbol],
+  )
+
   const series = useMemo(
     () => data?.market.find((item) => item.symbol === activeSymbol) ?? null,
     [data, activeSymbol],
@@ -137,12 +157,15 @@ export default function App() {
             {data ? `${data.market.length} symbols · click a row to chart it` : 'loading…'}
           </span>
         </div>
+        <SymbolSearch onAdded={handleAdded} />
         {data ? (
           <MarketTable
             series={data.market}
             signals={data.signals}
             selected={activeSymbol}
             onSelect={(symbol) => setSelected(symbol)}
+            onRemove={(symbol) => void handleRemove(symbol)}
+            busy={busy === 'remove'}
           />
         ) : (
           <div className="empty">{loading ? 'Loading market data…' : 'No data available.'}</div>

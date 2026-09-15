@@ -23,6 +23,7 @@ from .forecast import ForecastError, ForecastOutcome, ForecastService
 from .market_data import MarketDataError, MarketDataService, market_data
 from .paper_trading import Fill, PaperTradingEngine, PortfolioState
 from .signals import Signal, SignalEngine
+from .watchlist import WatchlistService
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +61,7 @@ class BotCycle:
         forecast_service: ForecastService | None = None,
         signal_engine: SignalEngine | None = None,
         paper: PaperTradingEngine | None = None,
+        watchlist: WatchlistService | None = None,
     ) -> None:
         self.settings = config or default_settings
         self.store = store
@@ -67,6 +69,7 @@ class BotCycle:
         self.forecasts = forecast_service or ForecastService(self.settings)
         self.signals = signal_engine or SignalEngine(self.settings)
         self.paper = paper or PaperTradingEngine(store, self.settings)
+        self.watchlist = watchlist or WatchlistService(store, self.settings)
 
     # ------------------------------------------------------------------ marks
 
@@ -159,7 +162,7 @@ class BotCycle:
         ``trade=False`` performs forecasting and signal generation only, leaving the portfolio
         untouched — used by the dashboard's dry-run button.
         """
-        target_symbols = [s.upper() for s in (symbols or self.settings.symbols)]
+        target_symbols = [s.upper() for s in (symbols or self.watchlist.symbols())]
         run_id = self.store.create_run("cycle")
         started = time.perf_counter()
 

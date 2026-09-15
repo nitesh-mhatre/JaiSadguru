@@ -3,7 +3,8 @@
 A **free, self-hosted** forecasting and paper-trading bot. It pulls market data from
 [`yfinance`](https://github.com/ranaroussi/yfinance) (no paid data feed, no API keys) and uses
 [**Kronos**](https://github.com/shiyu-coder/Kronos) — the first open-source foundation model for
-financial candlesticks — to forecast prices for **index stocks, gold and silver**.
+financial candlesticks — to forecast prices for **US indices, gold and silver, crypto, and
+Indian stocks**.
 
 Forecasts are converted into `BUY` / `SELL` / `HOLD` signals by a rule-based signal engine, and
 those signals are executed against a **simulated portfolio** (virtual cash, positions, P&L,
@@ -11,15 +12,36 @@ trade log). **No real orders are ever placed and no broker credentials are requi
 
 ## Watchlist
 
-| Symbol   | Asset              | Class     |
-| -------- | ------------------ | --------- |
-| `^GSPC`  | S&P 500            | index     |
-| `^NDX`   | Nasdaq 100         | index     |
-| `^DJI`   | Dow Jones 30       | index     |
-| `GC=F`   | Gold futures       | commodity |
-| `SI=F`   | Silver futures     | commodity |
+| Symbol        | Asset                     | Class     |
+| ------------- | ------------------------- | --------- |
+| `^GSPC`       | S&P 500                   | index     |
+| `^NDX`        | Nasdaq 100                | index     |
+| `^DJI`        | Dow Jones 30              | index     |
+| `GC=F`        | Gold futures              | commodity |
+| `SI=F`        | Silver futures            | commodity |
+| `BTC-USD`     | Bitcoin                   | crypto    |
+| `ETH-USD`     | Ethereum                  | crypto    |
+| `^NSEI`       | Nifty 50                  | index     |
+| `RELIANCE.NS` | Reliance Industries (NSE) | stock     |
+| `TCS.NS`      | Tata Consultancy (NSE)    | stock     |
 
-Add more symbols in `backend/app/config.py` — any ticker `yfinance` supports works.
+Any ticker `yfinance` supports works — including other crypto pairs (`SOL-USD`) and other
+NSE/BSE stocks (`INFY.NS`, `HDFCBANK.NS`).
+
+### Search and the live watchlist
+
+The dashboard has a **search box** above the watchlist table: type a name or ticker
+(`bitcoin`, `reliance`, `^NSEI`, `SOL-USD`) and add a hit to start tracking it. The live
+watchlist is stored in SQLite and survives restarts; the `WATCHLIST` environment variable is
+only the *seed* for a fresh database. A symbol is validated at add-time by actually fetching a
+bar, so a typo is rejected once instead of skipped by every future cycle; a symbol with an open
+paper position cannot be removed.
+
+Programmatically: `GET /api/search?q=…`, `GET/POST/DELETE /api/watchlist` (see `/docs`).
+
+> Crypto note: crypto trades 24/7, so daily bars include weekends and forecasts step calendar
+> days. Session-traded assets (indices, futures, NSE/BSE stocks) step business days. Exchange
+> holidays are not modelled.
 
 ## Architecture
 
@@ -90,6 +112,15 @@ From the dashboard click **Run cycle**, or:
 
 ```bash
 curl -X POST http://localhost:8000/api/paper/step
+```
+
+Search for symbols and manage the watchlist:
+
+```bash
+curl -s 'http://localhost:8000/api/search?q=bitcoin' | python3 -m json.tool
+curl -s -X POST http://localhost:8000/api/watchlist \
+     -H 'Content-Type: application/json' -d '{"symbol": "SOL-USD", "name": "Solana"}' \
+     | python3 -m json.tool
 ```
 
 That fetches data → forecasts every watchlist symbol → derives signals → applies them to the

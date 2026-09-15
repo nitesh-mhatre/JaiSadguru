@@ -7,15 +7,18 @@ interface Props {
   signals: SignalResponse[]
   selected: string | null
   onSelect: (symbol: string) => void
+  onRemove?: (symbol: string) => void
+  busy?: boolean
 }
 
 /**
  * The watchlist. Clicking a row selects that symbol for the chart and signal panel.
  *
  * A symbol with no stored signal shows a dash rather than a HOLD — "we have not evaluated this
- * yet" is a different statement from "we evaluated it and there is no edge".
+ * yet" is a different statement from "we evaluated it and there is no edge". The remove button
+ * stops tracking a symbol; the backend refuses while a paper position is open in it.
  */
-export function MarketTable({ series, signals, selected, onSelect }: Props) {
+export function MarketTable({ series, signals, selected, onSelect, onRemove, busy = false }: Props) {
   const signalBySymbol = new Map(signals.map((s) => [s.symbol, s]))
 
   return (
@@ -31,6 +34,7 @@ export function MarketTable({ series, signals, selected, onSelect }: Props) {
           <th>Confidence</th>
           <th className="num">Exp. move</th>
           <th className="num">Signal age</th>
+          {onRemove && <th aria-label="Remove" />}
         </tr>
       </thead>
       <tbody>
@@ -85,6 +89,22 @@ export function MarketTable({ series, signals, selected, onSelect }: Props) {
               </td>
               <td className="num muted tiny">
                 {signal ? fmtRelative(new Date(signal.created_at)) : 'never'}
+              </td>
+              <td className="num">
+                {onRemove && (
+                  <button
+                    className="btn btn-ghost btn-sm row-remove"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      onRemove(item.symbol)
+                    }}
+                    onKeyDown={(event) => event.stopPropagation()}
+                    disabled={busy}
+                    title={`Stop tracking ${item.symbol}`}
+                  >
+                    ✕
+                  </button>
+                )}
               </td>
             </tr>
           )

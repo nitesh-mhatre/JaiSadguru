@@ -16,8 +16,10 @@ import type {
   MessageResponse,
   PortfolioResponse,
   RunResponse,
+  SearchResult,
   SignalResponse,
   TradeResponse,
+  WatchlistEntry,
 } from './types'
 
 const BASE = import.meta.env.VITE_API_BASE ?? ''
@@ -85,6 +87,22 @@ export const api = {
     ),
 
   latestSignals: () => request<SignalResponse[]>('/api/signals/latest'),
+
+  searchSymbols: (query: string, limit = 10) =>
+    request<SearchResult[]>(
+      `/api/search?q=${encodeURIComponent(query)}&limit=${limit}`,
+    ),
+
+  watchlist: () => request<WatchlistEntry[]>('/api/watchlist'),
+
+  addWatchlistEntry: (symbol: string, name?: string, assetClass?: string) =>
+    request<WatchlistEntry>('/api/watchlist', {
+      method: 'POST',
+      body: JSON.stringify({ symbol, name: name ?? null, asset_class: assetClass ?? null }),
+    }),
+
+  removeWatchlistEntry: (symbol: string) =>
+    request<MessageResponse>(`/api/watchlist/${enc(symbol)}`, { method: 'DELETE' }),
 
   latestForecasts: () => request<ForecastResponse[]>('/api/forecast/latest'),
 

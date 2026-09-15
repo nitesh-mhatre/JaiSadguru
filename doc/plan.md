@@ -83,6 +83,7 @@ end to end.** That is the single most important open item.
 | P-03 | Held-out evaluation window; report vs buy-and-hold benchmark | ⬜ Todo | Guards the overfitting risk in the objective's risk register |
 | P-04 | `pytest` suite: signal-engine determinism, paper-engine accounting invariant, store round-trips | ⬜ Todo | The invariant `realized + unrealized == equity - initial` is the highest-value test |
 | P-05 | Document measured Kronos accuracy honestly in the README | ⬜ Todo | Depends on P-01. Do not ship a claim we have not measured |
+| W-01 | **Crypto + Indian stock search support**: symbol search API (`GET /api/search`, keyless Yahoo endpoint, SQLite-cached, local fallback), persisted watchlist CRUD (`GET/POST/DELETE /api/watchlist`) with add-time validation and open-position removal guard, default watchlist extended to 10 symbols, crypto calendar-day forecast timestamps, dashboard search box with add/remove | ✅ Done | Branch `feat/search-crypto-india`. **Verified: `python -m compileall` pass; store round-trip + seed idempotency + cache-TTL assertions pass; `npm run typecheck` + `npm run build` exit 0 (253.01 kB / 78.23 kB gzip). Not executed live (B-01): the search HTTP call, add-time validation fetch and a full cycle need `pip install -r requirements.txt` — see Verify section** |
 
 ## Milestone M5 — Hardening *(later)*
 
@@ -116,6 +117,7 @@ end to end.** That is the single most important open item.
 | 2026-09-14 | Scope is **forecast + signals + paper trading**; no broker integration | User-selected. Keeps the project free, keyless and risk-free; a live-broker adapter can be added later behind the same execution API |
 | 2026-09-14 | Kronos **vendored** into `backend/vendor/kronos/` rather than a submodule or `pip install git+` | User-selected. Repo stays self-contained and reproducible; no network dependency at install time |
 | 2026-09-14 | Watchlist limited to `^GSPC`, `^NDX`, `^DJI`, `GC=F`, `SI=F` | User-selected. Matches the stated target of "index stocks, gold and silver" |
+| 2026-09-15 | Watchlist **extended** to crypto (`BTC-USD`, `ETH-USD`) and Indian markets (`^NSEI`, `RELIANCE.NS`, `TCS.NS`); live watchlist persisted in SQLite and editable via search API; crypto forecasts step calendar days | User request ("add crypto and Indian stock search support"). Supersedes the scope of the 2024-09-14 watchlist row — the original five remain a subset. The config `WATCHLIST` becomes the *seed*; the DB is the source of truth, so additions survive restarts without editing files |
 | 2026-09-14 | **Daily bars** as the default interval | Free `yfinance` intraday history is capped (7d @5m, 60d @1h) — too short for a 400-bar Kronos context. Documented as a non-goal to design around intraday |
 | 2026-09-14 | Hand-rolled **SVG charts** instead of a chart library | Zero chart dependencies → no version drift, smaller install, no licence questions. Candlesticks and an equity curve are simple enough to draw directly |
 | 2026-09-14 | Stdlib **`sqlite3`** instead of an ORM | Single-file, inspectable, zero service to run; the schema is small enough that an ORM adds cost without benefit |
@@ -130,6 +132,7 @@ end to end.** That is the single most important open item.
 
 > Newest first. Each entry: date — what landed — branch — commit — verification.
 
+- **2026-09-15** — Crypto + Indian stock search support (W-01): `symbol_search.py` (keyless Yahoo search, SQLite cache, offline fallback), `watchlist.py` (persisted watchlist seeded from config, add-time validation, open-position guard), `search_cache` + `watchlist` tables (schema v2), `/api/search` + `/api/watchlist` routes, dashboard `SymbolSearch` component with per-row remove, default watchlist now 10 symbols incl. `BTC-USD`/`ETH-USD`/`^NSEI`/`RELIANCE.NS`/`TCS.NS`, crypto forecasts step calendar days (`future_timestamps` is asset-class aware) — `feat/search-crypto-india` — **verified: `python -m compileall` pass; store watchlist CRUD/seed-idempotency/cache-TTL asserted in a temp-DB script; `npm run typecheck` exit 0, `npm run build` exit 0 (253.01 kB / 78.23 kB gzip). Live HTTP paths unverified in this sandbox (B-01 — no pandas/pydantic/torch); run the commands in the Verify section**.
 - **2026-09-14** — Fixed B-05: scripts resolved their directory from `$0`, which is the *shell's* name when a file is sourced, so `. setup.sh` installed into the wrong directory. Now uses `BASH_SOURCE[0]`, guards against sourcing, and enables strict mode only after the guard so sourcing cannot kill the caller's shell — `fix/script-sourcing` — **verified: sourcing returns 1 with the shell surviving; layout check rejects a partial checkout; all four still pass `bash -n` and their execution paths**.
 - **2026-09-14** — Runnable shell entry points: `setup.sh` (venv + npm, with a `TORCH_INDEX` CPU-wheel option), `dev.sh` (both services, shared teardown), `backend/run.sh` (venv-aware, fails loudly without deps, warns when torch is missing), `frontend/run.sh` (installs on first run, `exec`s vite) — `feat/run-scripts` — **verified: `bash -n` clean on all four; `./frontend/run.sh --version` exit 0; `./backend/run.sh` with deps absent exits 1 with the fix printed; `./dev.sh` tore down the dashboard when the backend died, no orphans**.
 - **2026-09-14** — Plan consolidated to final statuses, bug log completed (B-04), deviation from R1 recorded — `docs/plan-final` — markdown only.
@@ -158,7 +161,19 @@ pip install -r requirements.txt
 ./run.sh                                   # or: uvicorn app.main:app --reload --port 8000
 
 curl -s localhost:8000/api/health | python3 -m json.tool
+
+# Search (W-01) — crypto and Indian stocks
+curl -s 'localhost:8000/api/search?q=bitcoin' | python3 -m json.tool
+curl -s 'localhost:8000/api/search?q=reliance' | python3 -m json.tool
+curl -s localhost:8000/api/watchlist | python3 -m json.tool
+
+# Add a symbol (validated by fetching a bar), then remove it
+curl -s -X POST localhost:8000/api/watchlist -H 'Content-Type: application/json' \
+     -d '{"symbol": "SOL-USD", "name": "Solana"}' | python3 -m json.tool
+curl -s -X DELETE localhost:8000/api/watchlist/SOL-USD | python3 -m json.tool
+
 curl -s -X POST localhost:8000/api/forecast/^GSPC | python3 -m json.tool   # first call downloads weights
+curl -s -X POST localhost:8000/api/forecast/BTC-USD | python3 -m json.tool # crypto: calendar-day steps
 curl -s -X POST localhost:8000/api/paper/step | python3 -m json.tool       # full cycle
 curl -s localhost:8000/api/portfolio | python3 -m json.tool
 
@@ -172,6 +187,8 @@ cd ../frontend && npm install && npm run dev                                # �
 2. `POST /api/forecast/^GSPC` → a `ForecastBundle` whose `forecast.points` has `pred_len` entries and
    whose `forecast.data_end` matches the last bar of the returned `history`. If this returns 503
    with a runtime message, `torch` or the `vendor` path is not resolving from `backend/`.
+   For `BTC-USD`, forecast point timestamps must step **calendar** days (weekends included);
+   for `^GSPC` and `RELIANCE.NS` they must step business days.
 3. `POST /api/paper/step` → a `CycleResponse`. `run.status` is `ok` when every symbol produced a
    signal, `degraded` when some were skipped. Read `skipped` and `notes` rather than assuming.
 4. The dashboard renders the watchlist, a candlestick chart with the forecast overlaid, a signal

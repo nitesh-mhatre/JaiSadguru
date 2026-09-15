@@ -10,15 +10,16 @@
 ## 1. Mission
 
 Build a **free, self-hosted forecasting and paper-trading bot** that uses the Kronos foundation
-model to predict short-horizon price paths for **index stocks, gold and silver**, derives
-actionable `BUY` / `SELL` / `HOLD` signals, and executes them against a **simulated portfolio** so
-that strategy behaviour can be observed and measured over time without risking capital.
+model to predict short-horizon price paths for **index stocks, gold and silver, crypto, and
+Indian stocks**, derives actionable `BUY` / `SELL` / `HOLD` signals, and executes them against a
+**simulated portfolio** so that strategy behaviour can be observed and measured over time without
+risking capital.
 
 ## 2. Primary targets
 
 | # | Target | Success criterion |
 |---|--------|-------------------|
-| T1 | Free data ingestion | Daily OHLCV for `^GSPC`, `^NDX`, `^DJI`, `GC=F`, `SI=F` pulled via `yfinance` with **no API keys and no paid feed** |
+| T1 | Free data ingestion | Daily OHLCV for the default watchlist — `^GSPC`, `^NDX`, `^DJI`, `GC=F`, `SI=F`, `BTC-USD`, `ETH-USD`, `^NSEI`, `RELIANCE.NS`, `TCS.NS` — pulled via `yfinance` with **no API keys and no paid feed**. Other crypto/Indian symbols are addable through the search API. |
 | T2 | Working forecasts | Kronos produces an OHLCV forecast path per symbol for a configurable horizon |
 | T3 | Deterministic signal layer | Every forecast maps to exactly one `BUY`/`SELL`/`HOLD` with a numeric confidence and machine-readable rationale |
 | T4 | Realistic paper portfolio | Virtual cash, positions, average cost, realised/unrealised P&L, fees, equity snapshots, full trade log |
@@ -148,7 +149,7 @@ A task is Done only when **all** of these hold:
 | `yfinance` rate limits / schema changes | Stale or failed runs | On-disk cache with TTL; per-symbol failure isolation; run marked degraded rather than guessed |
 | CPU-only inference is slow | Poor UX | Default to `kronos-small`; document `kronos-mini`; cache forecasts per bar |
 | Overfitting the signal thresholds to the paper portfolio | False confidence | Thresholds live in config; M4 backtest must evaluate on a held-out window |
-| Index/futures tickers have different sessions & gaps | Bad timestamps to the model | Timestamps normalised and timezone-stripped in the data layer; gaps documented |
+| Index/futures tickers have different sessions & gaps | Bad timestamps to the model | Timestamps normalised and timezone-stripped in the data layer; crypto steps calendar days, session assets step business days; gaps documented |
 
 ## 10. Glossary
 

@@ -31,6 +31,8 @@ from .api.routes import router  # noqa: E402
 from .config import settings  # noqa: E402
 from .services.cycle import BotCycle  # noqa: E402
 from .services.scheduler import CycleScheduler  # noqa: E402
+from .services.symbol_search import SymbolSearchService  # noqa: E402
+from .services.watchlist import WatchlistService  # noqa: E402
 from .store import Store  # noqa: E402
 
 logging.basicConfig(
@@ -58,6 +60,11 @@ async def lifespan(app: FastAPI):
     store.init_schema()
     store.ensure_account(settings.initial_capital)
 
+    # Seed the persisted watchlist from config: symbols the user added or removed through the
+    # API are preserved; only missing defaults are inserted.
+    watchlist = WatchlistService(store, settings)
+    watchlist.seed()
+
     cycle = BotCycle(store, settings)
     # The scheduler always exists so manual and scheduled runs share one lock; it only
     # self-starts when SCHEDULER_ENABLED is set.
@@ -70,6 +77,8 @@ async def lifespan(app: FastAPI):
     app.state.store = store
     app.state.cycle = cycle
     app.state.scheduler = scheduler
+    app.state.watchlist = watchlist
+    app.state.symbol_search = SymbolSearchService(store, settings)
 
     logger.info(
         "JaiSadguru %s ready | interval=%s lookback=%d horizon=%d model=%s watchlist=%s db=%s",

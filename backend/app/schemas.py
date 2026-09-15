@@ -52,6 +52,39 @@ class SignalThresholds(BaseModel):
     min_confidence: float
 
 
+# ------------------------------------------------------------------------------------
+# Search and watchlist
+# ------------------------------------------------------------------------------------
+
+
+class SearchResultModel(BaseModel):
+    """One symbol found by the search endpoint."""
+
+    symbol: str
+    name: str
+    asset_class: str
+    exchange: str
+    on_watchlist: bool = Field(description="True when the symbol is already being tracked.")
+
+
+class WatchlistEntryModel(BaseModel):
+    """One tracked symbol with its provenance."""
+
+    symbol: str
+    name: str
+    asset_class: str
+    added_at: str
+    source: Literal["seed", "search", "manual"]
+
+
+class WatchlistAddRequest(BaseModel):
+    """Start tracking a symbol. Only ``symbol`` is required."""
+
+    symbol: str = Field(min_length=1, max_length=32)
+    name: str | None = Field(default=None, max_length=80)
+    asset_class: str | None = Field(default=None, max_length=24)
+
+
 class ConfigResponse(BaseModel):
     """Everything the dashboard needs to render its static chrome."""
 
@@ -328,13 +361,6 @@ class HealthResponse(BaseModel):
     detail: str | None = None
 
 
-class MessageResponse(BaseModel):
-    """Simple acknowledgement payload."""
-
-    ok: bool
-    message: str
-
-
 class StatsResponse(BaseModel):
     """Row counts per table, for manual inspection and debugging."""
 
@@ -344,3 +370,11 @@ class StatsResponse(BaseModel):
     positions: int
     trades: int
     snapshots: int
+    watchlist: int
+
+
+class MessageResponse(BaseModel):
+    """Simple acknowledgement payload."""
+
+    ok: bool
+    message: str

@@ -15,6 +15,8 @@ from ..services.market_data import MarketDataService
 from ..services.paper_trading import PaperTradingEngine
 from ..services.scheduler import CycleScheduler
 from ..services.signals import SignalEngine
+from ..services.symbol_search import SymbolSearchService
+from ..services.watchlist import WatchlistService
 from ..store import Store
 
 
@@ -48,3 +50,11 @@ def get_signal_engine(request: Request) -> SignalEngine:
 
 def get_market_data(request: Request) -> MarketDataService:
     return request.app.state.cycle.data
+
+
+def get_watchlist(request: Request) -> WatchlistService:
+    return request.app.state.watchlist
+
+
+def get_symbol_search(request: Request) -> SymbolSearchService:
+    return request.app.state.symbol_search

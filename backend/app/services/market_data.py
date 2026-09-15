@@ -23,6 +23,7 @@ import pandas as pd
 
 from ..config import Settings
 from ..config import settings as default_settings
+from ..config import classify_symbol
 
 logger = logging.getLogger(__name__)
 
@@ -142,15 +143,19 @@ def _strip_timezone(index: pd.DatetimeIndex) -> pd.DatetimeIndex:
 
 
 def future_timestamps(
-    index: pd.DatetimeIndex, horizon: int, interval: str
+    index: pd.DatetimeIndex, horizon: int, interval: str, asset_class: str = "index"
 ) -> pd.DatetimeIndex:
     """Build the timestamps the model should predict for.
 
     Naively stepping one day at a time would place forecasts on weekends, misaligning them with
     the actuals they are later scored against (bug B-03). Daily bars therefore step over business
-    days, which tracks the Mon-Fri sessions of the indices and metals futures in the watchlist.
-    Exchange holidays are not modelled — documented, and harmless because the scoring step joins
-    on timestamps rather than assuming a fixed offset.
+    days for session-traded assets, which tracks the Mon-Fri sessions of the indices and metals
+    futures in the watchlist. **Crypto trades every calendar day**, so its daily bars are stepped
+    per calendar day instead — classifying crypto bars on business days would silently skip every
+    weekend, exactly the misalignment B-03 fixed for the other side. NSE/BSE sessions are also
+    Mon-Fri, so Indian equities share the business-day path. Exchange holidays are not modelled —
+    documented, and harmless because the scoring step joins on timestamps rather than assuming a
+    fixed offset.
 
     Returns an empty index when the horizon is not positive.
     """
@@ -160,7 +165,10 @@ def future_timestamps(
     last = index[-1]
 
     if interval == "1d":
-        # ``bdate_range`` excludes Saturdays and Sundays.
+        if asset_class == "crypto":
+            # 24/7 markets: step calendar days.
+            return pd.date_range(start=last.normalize(), periods=horizon + 1, freq="D")[1:]
+        # ``bdate_range`` excludes Saturdays and Sundays (indices, futures, NSE/BSE stocks).
         return pd.bdate_range(start=last.normalize(), periods=horizon + 1, freq="B")[1:]
 
     if interval == "1wk":
@@ -190,8 +198,8 @@ class MarketDataService:
     # -------------------------------------------------------------- cache helpers
 
     def _cache_path(self, symbol: str, interval: str) -> Path:
-        # '^' and '=' are legal in a filename on POSIX but are awkward in shells and URLs.
-        safe = symbol.upper().replace("^", "IDX_").replace("=", "_")
+        # '^', '=' and '.' are legal in a filename on POSIX but are awkward in shells and URLs.
+        safe = symbol.upper().replace("^", "IDX_").replace("=", "_").replace(".", "_")
         return self.settings.cache_dir / f"{safe}_{interval}.csv"
 
     def _read_cache(self, symbol: str, interval: str) -> tuple[pd.DataFrame | None, float | None]:
@@ -291,7 +299,7 @@ class MarketDataService:
         interval = interval or self.settings.interval
         asset = self.settings.asset(symbol)
         name = asset.name if asset else symbol
-        asset_class = asset.asset_class if asset else "custom"
+        asset_class = asset.asset_class if asset else classify_symbol(symbol)
         now = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
         cached, modified_at = (None, None)

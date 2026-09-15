@@ -31,6 +31,24 @@ export interface SignalThresholds {
   min_confidence: number
 }
 
+/** One symbol found by the search endpoint. */
+export interface SearchResult {
+  symbol: string
+  name: string
+  asset_class: string
+  exchange: string
+  on_watchlist: boolean
+}
+
+/** One tracked symbol with its provenance. */
+export interface WatchlistEntry {
+  symbol: string
+  name: string
+  asset_class: string
+  added_at: string
+  source: 'seed' | 'search' | 'manual'
+}
+
 export interface ConfigResponse {
   interval: string
   lookback: number

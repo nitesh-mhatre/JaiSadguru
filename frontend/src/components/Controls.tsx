@@ -2,7 +2,7 @@ import type { ConfigResponse, HealthResponse, RunResponse } from '../types'
 import { fmtRelative } from '../format'
 import { StatusBadge } from './Badge'
 
-export type BusyAction = 'cycle' | 'dry' | 'reset' | 'forecast' | 'warmup' | null
+export type BusyAction = 'cycle' | 'dry' | 'reset' | 'forecast' | 'warmup' | 'remove' | null
 
 interface Props {
   health: HealthResponse | null
@@ -48,7 +48,7 @@ export function Controls({
         <div className="brand">
           <h1>JaiSadguru</h1>
           <p className="muted tiny">
-            Kronos forecasts for indices, gold and silver · <strong>paper trading only</strong>
+            Kronos forecasts for indices, crypto and Indian stocks · <strong>paper trading only</strong>
           </p>
         </div>
 

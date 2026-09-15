@@ -16,7 +16,7 @@ import time
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from .. import __version__
-from ..config import ALLOWED_INTERVALS, Settings
+from ..config import ALLOWED_INTERVALS, Settings, classify_symbol
 from ..config import settings as default_settings
 from ..schemas import (
     AssetInfo,
@@ -32,10 +32,13 @@ from ..schemas import (
     ResetRequest,
     RiskLimits,
     RunResponse,
+    SearchResultModel,
     SignalResponse,
     SignalThresholds,
     StatsResponse,
     TradeResponse,
+    WatchlistAddRequest,
+    WatchlistEntryModel,
 )
 from ..services.cycle import CycleResult
 from ..services.forecast import ForecastError, ForecastOutcome, ForecastService, KronosRuntime
@@ -43,6 +46,8 @@ from ..services.market_data import MarketDataError, MarketDataService
 from ..services.paper_trading import Fill, PaperTradingEngine, PortfolioState
 from ..services.scheduler import CycleScheduler
 from ..services.signals import Signal
+from ..services.symbol_search import SearchError, SymbolSearchService
+from ..services.watchlist import WatchlistError, WatchlistService
 from ..store import Store, utcnow
 from .deps import (
     get_cycle,
@@ -52,6 +57,8 @@ from .deps import (
     get_runtime,
     get_scheduler,
     get_store,
+    get_symbol_search,
+    get_watchlist,
 )
 
 logger = logging.getLogger(__name__)
@@ -92,7 +99,7 @@ def _stored_signal_response(row: dict, config: Settings) -> SignalResponse:
     return SignalResponse(
         symbol=symbol,
         name=asset.name if asset else symbol,
-        asset_class=asset.asset_class if asset else "custom",
+        asset_class=asset.asset_class if asset else classify_symbol(symbol),
         action=str(row["action"]),  # type: ignore[arg-type]
         confidence=float(row["confidence"]),
         score=float(row["score"]),
@@ -203,6 +210,7 @@ def _market_series(result, rows: int) -> CandleSeries:
 def health(
     runtime: KronosRuntime = Depends(get_runtime),
     store: Store = Depends(get_store),
+    watchlist: WatchlistService = Depends(get_watchlist),
 ) -> HealthResponse:
     """Liveness plus an honest statement of what the backend can actually do right now."""
     import_error = runtime.import_error()
@@ -211,7 +219,7 @@ def health(
         version=__version__,
         time=utcnow(),
         interval=default_settings.interval,
-        watchlist=list(default_settings.symbols),
+        watchlist=watchlist.symbols(),
         db_path=str(store.db_path),
         model=default_settings.kronos_model,
         model_id=default_settings.model_spec.model_id,
@@ -223,9 +231,10 @@ def health(
 
 
 @router.get("/config", response_model=ConfigResponse, tags=["system"])
-def get_config() -> ConfigResponse:
+def get_config(watchlist: WatchlistService = Depends(get_watchlist)) -> ConfigResponse:
     """Everything the dashboard needs to render its static chrome."""
     config = default_settings
+    live_assets = watchlist.assets()
     return ConfigResponse(
         interval=config.interval,
         lookback=config.lookback,
@@ -236,7 +245,7 @@ def get_config() -> ConfigResponse:
         max_context=config.model_spec.max_context,
         watchlist=[
             AssetInfo(symbol=a.symbol, name=a.name, asset_class=a.asset_class)
-            for a in config.watchlist
+            for a in live_assets
         ],
         risk=RiskLimits(
             initial_capital=config.initial_capital,
@@ -305,16 +314,17 @@ def market_symbol(
 
 @router.get("/market", response_model=list[CandleSeries], tags=["market"])
 def market_watchlist(
-    symbols: str | None = Query(default=None, description="Comma-separated; defaults to WATCHLIST."),
+    symbols: str | None = Query(default=None, description="Comma-separated; defaults to the live watchlist."),
     rows: int = Query(default=0, ge=0, le=10_000),
     refresh: bool = Query(default=False),
     data: MarketDataService = Depends(get_market_data),
+    watchlist: WatchlistService = Depends(get_watchlist),
 ) -> list[CandleSeries]:
     """Historical bars for several symbols. Symbols that fail are omitted rather than guessed."""
     requested = (
         [s.strip() for s in symbols.split(",") if s.strip()]
         if symbols
-        else list(default_settings.symbols)
+        else watchlist.symbols()
     )
     series: list[CandleSeries] = []
     for symbol in requested:
@@ -384,10 +394,11 @@ def forecast_symbol(
 def latest_forecasts(
     limit: int = Query(default=20, ge=1, le=200),
     store: Store = Depends(get_store),
+    watchlist: WatchlistService = Depends(get_watchlist),
 ) -> list[ForecastResponse]:
     """Most recent stored forecast per symbol (metadata only — points are on ``/forecast/{symbol}``)."""
     responses: list[ForecastResponse] = []
-    for symbol in default_settings.symbols:
+    for symbol in watchlist.symbols():
         row = store.latest_forecast(symbol)
         if row is None:
             continue
@@ -442,6 +453,81 @@ def recent_signals(
 ) -> list[SignalResponse]:
     """Signal history, newest first."""
     return [_stored_signal_response(row, default_settings) for row in store.recent_signals(limit)]
+
+
+# ------------------------------------------------------------------------------------
+# Search and watchlist
+# ------------------------------------------------------------------------------------
+
+
+@router.get("/search", response_model=list[SearchResultModel], tags=["watchlist"])
+def search_symbols(
+    q: str = Query(min_length=1, max_length=64, description="Name or ticker, e.g. bitcoin, reliance, BTC-USD."),
+    limit: int = Query(default=10, ge=1, le=25),
+    search: SymbolSearchService = Depends(get_symbol_search),
+) -> list[SearchResultModel]:
+    """Find tradeable symbols by name — crypto, Indian equities, indices and futures.
+
+    Keyless: backed by the same public Yahoo endpoint ``yfinance`` resolves symbols through.
+    Cached in SQLite; on network failure it falls back to the built-in asset table.
+    """
+    try:
+        return [SearchResultModel(**hit) for hit in search.search(q, limit=limit)]
+    except SearchError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.get("/watchlist", response_model=list[WatchlistEntryModel], tags=["watchlist"])
+def get_watchlist_entries(
+    watchlist: WatchlistService = Depends(get_watchlist),
+) -> list[WatchlistEntryModel]:
+    """The symbols being tracked, in insertion order."""
+    return [
+        WatchlistEntryModel(
+            symbol=e.symbol,
+            name=e.name,
+            asset_class=e.asset_class,
+            added_at=e.added_at,
+            source=e.source,  # type: ignore[arg-type]
+        )
+        for e in watchlist.entries()
+    ]
+
+
+@router.post("/watchlist", response_model=WatchlistEntryModel, status_code=201, tags=["watchlist"])
+def add_watchlist_entry(
+    request: WatchlistAddRequest,
+    watchlist: WatchlistService = Depends(get_watchlist),
+) -> WatchlistEntryModel:
+    """Start tracking a symbol.
+
+    The symbol is validated by actually fetching one bar, so an unpriceable ticker is rejected
+    here rather than silently skipped by every future cycle.
+    """
+    try:
+        entry = watchlist.add(request.symbol, request.name, request.asset_class)
+    except WatchlistError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return WatchlistEntryModel(
+        symbol=entry.symbol,
+        name=entry.name,
+        asset_class=entry.asset_class,
+        added_at=entry.added_at,
+        source=entry.source,
+    )
+
+
+@router.delete("/watchlist/{symbol}", response_model=MessageResponse, tags=["watchlist"])
+def remove_watchlist_entry(
+    symbol: str,
+    watchlist: WatchlistService = Depends(get_watchlist),
+) -> MessageResponse:
+    """Stop tracking a symbol. Refused while a paper position is open in it."""
+    try:
+        watchlist.remove(symbol)
+    except WatchlistError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return MessageResponse(ok=True, message=f"{symbol.upper()} removed from the watchlist")
 
 
 # ------------------------------------------------------------------------------------
